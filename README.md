@@ -2,6 +2,7 @@
 A Java-based application for managing rental inventory, bookings, and customers.
 
 # Folder Structure 
+```
 Rental-App-Management-System/
 ├── src/
 │   └── com/
@@ -29,7 +30,4 @@ Rental-App-Management-System/
 │           │   ├── DBConnection.java  # Shared database connection utility
 │           │   └── Validator.java     # Shared input validation helpers
 │           │
-│           └── Main.java              # Entry point — runs the application
 │
-├── README.md
-└── .gitignore
