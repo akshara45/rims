@@ -1,0 +1,15 @@
+.git
+.gitignore
+.dockerignore
+.codex
+.agents
+bin
+target
+lib
+test_support
+test_suite.ps1
+tools
+*.db
+*.db-*
+*.bak
+*.log

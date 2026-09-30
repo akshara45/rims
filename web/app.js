@@ -12,6 +12,7 @@ const state = {
     searchQuery: "",
     availableOnly: false,
     selectedItemForRent: null,
+    paymentSimulationConfirmed: false,
     currentView: "explore"
 };
 
@@ -313,8 +314,8 @@ async function loadCatalog() {
             const icon = CATEGORY_ICONS[item.category] || "📦";
             const isAvail = item.available;
             const statusBadge = isAvail
-                ? `<span class="badge badge-success">Available</span>`
-                : `<span class="badge badge-warning">Currently Rented</span>`;
+                ? `<span class="badge badge-success">Available today</span>`
+                : `<span class="badge badge-warning">Check selected dates</span>`;
 
             return `
                 <div class="rental-card" id="card-${item.itemId}">
@@ -336,9 +337,8 @@ async function loadCatalog() {
                             <span class="card-price-unit">/ day</span>
                         </div>
                         <button class="btn ${isAvail ? 'btn-primary' : 'btn-secondary'} btn-sm" 
-                                ${!isAvail ? "disabled" : ""} 
                                 onclick="openRentModal('${item.itemId}')">
-                            ${isAvail ? "Rent Now" : "Unavailable"}
+                            ${isAvail ? "Rent Now" : "Select Dates"}
                         </button>
                     </div>
                 </div>
@@ -386,13 +386,8 @@ function openRentModal(itemId) {
     const item = state.catalogItems.find(i => i.itemId === itemId);
     if (!item) return;
 
-    if (!item.available) {
-        showToast("This item is currently unavailable.", "error");
-        return;
-    }
-
     state.selectedItemForRent = item;
-    state.upiPaymentConfirmed = false;
+    state.paymentSimulationConfirmed = false;
 
     document.getElementById("rental-item-id").value = item.itemId;
     document.getElementById("rental-preview-name").textContent = item.name;
@@ -405,10 +400,12 @@ function openRentModal(itemId) {
     const cardNum = document.getElementById("card-number");
     const cardExp = document.getElementById("card-expiry");
     const cardCvv = document.getElementById("card-cvv");
-    if (cardName) cardName.value = state.currentUser ? state.currentUser.name : "";
-    if (cardNum) cardNum.value = "";
-    if (cardExp) cardExp.value = "";
-    if (cardCvv) cardCvv.value = "";
+    if (cardName) cardName.value = "Demo User";
+    if (cardNum) cardNum.value = "0000 0000 0000 0000";
+    if (cardExp) cardExp.value = "12/30";
+    if (cardCvv) cardCvv.value = "000";
+    const paymentOutcome = document.getElementById("demo-payment-outcome");
+    if (paymentOutcome) paymentOutcome.value = "SUCCESS";
 
     // Reset UPI state
     const upiBanner = document.getElementById("upi-confirmed-banner");
@@ -428,6 +425,7 @@ function openRentModal(itemId) {
 }
 
 function handlePaymentMethodChange() {
+    resetPaymentSimulation();
     const methodSelect = document.getElementById("rental-payment-method");
     if (!methodSelect) return;
     const method = methodSelect.value;
@@ -435,29 +433,30 @@ function handlePaymentMethodChange() {
     const upiSec = document.getElementById("pay-section-upi");
     const cardSec = document.getElementById("pay-section-card");
     const cashSec = document.getElementById("pay-section-cash");
+    const outcomeGroup = document.getElementById("demo-payment-outcome-group");
     const cardTitle = document.getElementById("card-method-title");
 
     if (upiSec) upiSec.style.display = "none";
     if (cardSec) cardSec.style.display = "none";
     if (cashSec) cashSec.style.display = "none";
 
-    if (method === "UPI") {
+    if (method === "UPI" || method === "NET_BANKING") {
         if (upiSec) upiSec.style.display = "block";
+        if (outcomeGroup) outcomeGroup.style.display = "block";
     } else if (method === "CREDIT_CARD" || method === "DEBIT_CARD") {
         if (cardSec) cardSec.style.display = "block";
+        if (outcomeGroup) outcomeGroup.style.display = "block";
         if (cardTitle) {
-            cardTitle.textContent = method === "CREDIT_CARD" ? "Credit Card Payment Details" : "Debit Card Payment Details";
+            cardTitle.textContent = method === "CREDIT_CARD" ? "Credit Card Test Fields" : "Debit Card Test Fields";
         }
-    } else if (method === "CASH") {
+    } else if (method === "CASH_ON_PICKUP") {
         if (cashSec) cashSec.style.display = "block";
+        if (outcomeGroup) outcomeGroup.style.display = "none";
     }
 }
 
 function confirmUpiPayment() {
-    state.upiPaymentConfirmed = true;
-    const txn = "UPI-" + Math.floor(100000 + Math.random() * 900000);
-    const txnEl = document.getElementById("upi-txn-id");
-    if (txnEl) txnEl.textContent = txn;
+    state.paymentSimulationConfirmed = true;
 
     const banner = document.getElementById("upi-confirmed-banner");
     if (banner) banner.style.display = "flex";
@@ -467,10 +466,23 @@ function confirmUpiPayment() {
         btn.disabled = true;
         btn.classList.remove("btn-primary");
         btn.classList.add("btn-success");
-        btn.textContent = "✓ Payment Confirmed via UPI";
+        btn.textContent = "✓ Simulation ready";
     }
 
-    showToast("UPI Payment verified & ready for booking confirmation!", "success");
+    showToast("Simulated payment ready. No money will be moved.", "info");
+}
+
+function resetPaymentSimulation() {
+    state.paymentSimulationConfirmed = false;
+    const banner = document.getElementById("upi-confirmed-banner");
+    const btn = document.getElementById("btn-upi-pay");
+    if (banner) banner.style.display = "none";
+    if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("btn-success");
+        btn.classList.add("btn-primary");
+        btn.textContent = "Simulate payment result";
+    }
 }
 
 function formatCardNumber(input) {
@@ -542,7 +554,7 @@ function updateRentalCalculation() {
     if (upiBtnAmountEl) upiBtnAmountEl.textContent = formatINR(totalAmount);
     if (cashDisplayEl) cashDisplayEl.textContent = formatINR(totalAmount);
 
-    if (state.upiPaymentConfirmed) {
+    if (state.paymentSimulationConfirmed) {
         const upiBtn = document.getElementById("btn-upi-pay");
         if (upiBtn) upiBtn.textContent = `✓ Payment Confirmed (${formatINR(totalAmount)})`;
     }
@@ -559,9 +571,9 @@ async function submitRentalBooking(e) {
     const btn = document.getElementById("btn-submit-rental");
 
     // Dynamic Payment Validation
-    if (paymentMethod === "UPI") {
-        if (!state.upiPaymentConfirmed) {
-            showToast("Please confirm your UPI payment by clicking 'Pay via UPI' first.", "warning");
+    if (paymentMethod === "UPI" || paymentMethod === "NET_BANKING") {
+        if (!state.paymentSimulationConfirmed) {
+            showToast("Choose the simulated payment result first.", "warning");
             const upiBtn = document.getElementById("btn-upi-pay");
             if (upiBtn) upiBtn.focus();
             return;
@@ -577,21 +589,32 @@ async function submitRentalBooking(e) {
             document.getElementById("card-holder-name").focus();
             return;
         }
-        if (cardNum.length < 15) {
-            showToast("Please enter a valid 16-digit card number", "error");
+        if (cardNum !== "0000000000000000") {
+            showToast("Use the test-only card number shown in this demo.", "error");
             document.getElementById("card-number").focus();
             return;
         }
-        if (!cardExp.match(/^(0[1-9]|1[0-2])\/\d{2}$/)) {
-            showToast("Please enter a valid expiry date (MM/YY)", "error");
+        if (cardExp !== "12/30") {
+            showToast("Use the test-only expiry date shown in this demo.", "error");
             document.getElementById("card-expiry").focus();
             return;
         }
-        if (cardCvv.length < 3) {
-            showToast("Please enter a valid 3 or 4 digit CVV", "error");
+        if (cardCvv !== "000") {
+            showToast("Use the test-only security code shown in this demo.", "error");
             document.getElementById("card-cvv").focus();
             return;
         }
+    }
+
+    try {
+        const availability = await apiRequest(`/api/items?id=${encodeURIComponent(item.itemId)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`);
+        if (!availability.available) {
+            showToast("This item is already booked for those dates. Choose another date range.", "error");
+            return;
+        }
+    } catch (err) {
+        showToast(err.message || "Could not check date availability.", "error");
+        return;
     }
 
     btn.disabled = true;
@@ -602,15 +625,21 @@ async function submitRentalBooking(e) {
             itemId: item.itemId,
             startDate,
             endDate,
-            paymentMethod
+            paymentMethod,
+            paymentOutcome: document.getElementById("demo-payment-outcome")?.value || "SUCCESS"
         });
 
-        if (res.success) {
+        if (res.paymentFailed) {
             closeModal("modal-rental");
-            if (paymentMethod === "CASH") {
-                showToast("Booking submitted! Payment will be collected in cash during pickup (Status: Payment Pending).", "info");
+            showToast("Simulated payment failed. No charge was made; choose another method or try again.", "error");
+            loadCatalog();
+            showCustomerView("rentals");
+        } else if (res.success) {
+            closeModal("modal-rental");
+            if (paymentMethod === "CASH_ON_PICKUP") {
+                showToast("Booking confirmed. Cash-on-pickup payment is pending.", "info");
             } else {
-                showToast("Rental confirmed and payment recorded successfully!", "success");
+                showToast(`Booking confirmed. Simulated payment recorded (${res.payment.demoTransactionRef}).`, "success");
             }
             loadCatalog();
             showCustomerView("rentals");
@@ -635,7 +664,7 @@ async function loadMyRentals() {
 
     try {
         const rentals = await apiRequest("/api/rentals/my");
-        const activeCount = rentals.filter(r => r.status === "ACTIVE" || r.status === "APPROVED").length;
+        const activeCount = rentals.filter(r => ["CONFIRMED", "ACTIVE", "APPROVED"].includes(r.status)).length;
         if (badgeEl) badgeEl.textContent = activeCount;
 
         if (!rentals || rentals.length === 0) {
@@ -652,10 +681,10 @@ async function loadMyRentals() {
         listEl.innerHTML = rentals.map(r => {
             const icon = (r.item && CATEGORY_ICONS[r.item.category]) || "📦";
             const itemName = r.item ? r.item.name : "Equipment";
-            const isActive = r.status === "ACTIVE" || r.status === "APPROVED";
+            const isActive = ["CONFIRMED", "ACTIVE", "APPROVED"].includes(r.status);
 
             let badgeClass = "badge-neutral";
-            if (r.status === "ACTIVE" || r.status === "APPROVED") badgeClass = "badge-success";
+            if (["CONFIRMED", "ACTIVE", "APPROVED"].includes(r.status)) badgeClass = "badge-success";
             else if (r.status === "PENDING") badgeClass = "badge-warning";
             else if (r.status === "RETURNED") badgeClass = "badge-info";
             else if (r.status === "CANCELLED" || r.status === "REJECTED") badgeClass = "badge-error";
@@ -670,11 +699,14 @@ async function loadMyRentals() {
                             <div class="record-dates">
                                 📅 ${r.startDate} to ${r.endDate} (${r.numberOfDays} days)
                             </div>
+                            <div class="record-dates">Payment: ${r.paymentMethod || "—"} · ${r.paymentStatus || "PENDING"}</div>
                         </div>
                     </div>
                     <div class="record-financials">
                         <div class="record-total">${formatINR(r.totalAmount)}</div>
-                        <div class="record-rate">${formatINR(r.dailyRate)} / day</div>
+                        <div class="record-rate">Rental amount</div>
+                        <div class="record-rate">Late fee: ${formatINR(r.lateFee || 0)}</div>
+                        <div class="record-rate"><strong>Total due: ${formatINR(r.totalDue ?? r.totalAmount)}</strong></div>
                     </div>
                     <div>
                         <span class="badge ${badgeClass}">${r.status}</span>
@@ -687,6 +719,7 @@ async function loadMyRentals() {
                         ` : `
                             <button class="btn btn-outline btn-sm" disabled>Completed</button>
                         `}
+                        ${r.lateFeeStatus === "PENDING" ? `<button class="btn btn-secondary btn-sm mt-4" onclick="simulateLateFeePayment('${r.rentalId}')">Pay Late Fee (Test)</button>` : ""}
                     </div>
                 </div>
             `;
@@ -705,7 +738,9 @@ async function returnRental(rentalId) {
             status: "RETURNED"
         });
         if (res.success) {
-            showToast("Equipment marked as returned. Thank you!", "success");
+            showToast(res.rental && res.rental.lateFee > 0
+                ? `Returned. Late fee due: ${formatINR(res.rental.lateFee)}.`
+                : "Equipment marked as returned. No late fee is due.", "success");
             loadMyRentals();
             loadCatalog();
         } else {
@@ -713,6 +748,17 @@ async function returnRental(rentalId) {
         }
     } catch (err) {
         showToast(err.message || "Error processing return.", "error");
+    }
+}
+
+async function simulateLateFeePayment(rentalId) {
+    try {
+        const res = await apiRequest("/api/payments/simulate", "POST", { rentalId, paymentMethod: "UPI" });
+        showToast(`Late fee paid in test mode (${res.payment.demoTransactionRef}). No money moved.`, "success");
+        loadMyRentals();
+        loadCatalog();
+    } catch (err) {
+        showToast(err.message || "Could not simulate late-fee payment.", "error");
     }
 }
 
@@ -825,6 +871,8 @@ async function loadAdminDashboardData() {
         document.getElementById("kpi-active-rentals").textContent = stats.activeRentals || 0;
         document.getElementById("kpi-total-customers").textContent = stats.totalCustomers || 0;
         document.getElementById("kpi-total-rentals").textContent = stats.totalRentals || 0;
+        document.getElementById("kpi-pending-payments").textContent = stats.pendingPayments || 0;
+        document.getElementById("kpi-late-fees-due").textContent = formatINR(stats.lateFeesDue || 0);
 
         // Load recent rentals
         const rentals = await apiRequest("/api/rentals");
@@ -832,14 +880,14 @@ async function loadAdminDashboardData() {
 
         const recent = rentals.slice(0, 5);
         if (!recent || recent.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">No rental activity recorded yet.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">No rental activity recorded yet.</td></tr>`;
             return;
         }
 
         tbody.innerHTML = recent.map(r => {
             const customerName = r.customer ? r.customer.name : "N/A";
             const itemName = r.item ? r.item.name : "N/A";
-            const isActive = r.status === "ACTIVE" || r.status === "APPROVED";
+            const isActive = ["CONFIRMED", "ACTIVE", "APPROVED"].includes(r.status);
 
             return `
                 <tr>
@@ -849,6 +897,8 @@ async function loadAdminDashboardData() {
                     <td>${r.startDate} to ${r.endDate} (${r.numberOfDays}d)</td>
                     <td>${formatINR(r.dailyRate)}</td>
                     <td><strong>${formatINR(r.totalAmount)}</strong></td>
+                    <td>${r.paymentMethod || "—"}<div class="text-sm text-muted">${r.paymentStatus || "PENDING"}</div></td>
+                    <td>${formatINR(r.lateFee || 0)}<div class="text-sm text-muted">Due: ${formatINR(r.totalDue ?? r.totalAmount)}</div></td>
                     <td><span class="badge ${isActive ? 'badge-success' : 'badge-neutral'}">${r.status}</span></td>
                     <td>
                         ${isActive ? `
@@ -1032,7 +1082,7 @@ async function loadAdminRentals() {
             const customerName = r.customer ? r.customer.name : "N/A";
             const customerEmail = r.customer ? r.customer.email : "";
             const itemName = r.item ? r.item.name : "N/A";
-            const isActive = r.status === "ACTIVE" || r.status === "APPROVED";
+            const isActive = ["CONFIRMED", "ACTIVE", "APPROVED"].includes(r.status);
 
             return `
                 <tr>
@@ -1047,6 +1097,8 @@ async function loadAdminRentals() {
                     <td>${r.numberOfDays} days</td>
                     <td>${formatINR(r.dailyRate)}</td>
                     <td><strong>${formatINR(r.totalAmount)}</strong></td>
+                    <td>${r.paymentMethod || "—"}<div class="text-sm text-muted">${r.paymentStatus || "PENDING"}</div></td>
+                    <td>${formatINR(r.lateFee || 0)}<div class="text-sm text-muted">Due: ${formatINR(r.totalDue ?? r.totalAmount)}</div></td>
                     <td><span class="badge ${isActive ? 'badge-success' : 'badge-neutral'}">${r.status}</span></td>
                     <td>
                         <div class="flex-gap">

@@ -66,7 +66,7 @@ public class JsonUtil {
         if (booking == null) return "null";
         String returnedAtStr = booking.getReturnedAt() != null ? "\"" + booking.getReturnedAt().toString() + "\"" : "null";
         return String.format(Locale.US,
-            "{\"rentalId\":\"%s\",\"bookingId\":\"%s\",\"customer\":%s,\"user\":%s,\"item\":%s,\"startDate\":\"%s\",\"endDate\":\"%s\",\"numberOfDays\":%d,\"rentalDays\":%d,\"dailyRate\":%.2f,\"totalAmount\":%.2f,\"status\":\"%s\",\"paymentStatus\":\"%s\",\"createdAt\":\"%s\",\"returnedAt\":%s}",
+            "{\"rentalId\":\"%s\",\"bookingId\":\"%s\",\"customer\":%s,\"user\":%s,\"item\":%s,\"startDate\":\"%s\",\"endDate\":\"%s\",\"numberOfDays\":%d,\"rentalDays\":%d,\"dailyRate\":%.2f,\"totalAmount\":%.2f,\"lateDays\":%d,\"lateFee\":%.2f,\"totalDue\":%.2f,\"lateFeeStatus\":\"%s\",\"status\":\"%s\",\"paymentStatus\":\"%s\",\"paymentMethod\":\"%s\",\"createdAt\":\"%s\",\"returnedAt\":%s}",
             escape(booking.getBookingId()),
             escape(booking.getBookingId()),
             userToJson(booking.getUser()),
@@ -78,8 +78,13 @@ public class JsonUtil {
             booking.getNumberOfDays(),
             booking.getDailyRate(),
             booking.getTotalAmount(),
+            booking.getLateDays(),
+            booking.getLateFee(),
+            booking.getTotalDue(),
+            escape(booking.getLateFeeStatus()),
             escape(booking.getStatus()),
             escape(booking.getPaymentStatus()),
+            escape(booking.getPaymentMethod()),
             booking.getCreatedAt() != null ? booking.getCreatedAt().toString() : "",
             returnedAtStr
         );
@@ -89,13 +94,15 @@ public class JsonUtil {
         if (payment == null) return "null";
         String rentalId = payment.getBooking() != null ? payment.getBooking().getBookingId() : "";
         return String.format(Locale.US,
-            "{\"paymentId\":\"%s\",\"rentalId\":\"%s\",\"amount\":%.2f,\"method\":\"%s\",\"paymentDate\":\"%s\",\"status\":\"%s\"}",
+            "{\"paymentId\":\"%s\",\"rentalId\":\"%s\",\"amount\":%.2f,\"method\":\"%s\",\"paymentDate\":\"%s\",\"status\":\"%s\",\"paymentType\":\"%s\",\"demoTransactionRef\":%s}",
             escape(payment.getPaymentId()),
             escape(rentalId),
             payment.getAmount(),
             escape(payment.getMethod()),
             payment.getPaymentDate() != null ? payment.getPaymentDate().toString() : "",
-            escape(payment.getStatus())
+            escape(payment.getStatus()),
+            escape(payment.getPaymentType()),
+            payment.getDemoTransactionRef() == null ? "null" : "\"" + escape(payment.getDemoTransactionRef()) + "\""
         );
     }
 

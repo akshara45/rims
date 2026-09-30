@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: rims
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: RIMS_DB_URL
+        sync: false
+      - key: RIMS_DB_USER
+        sync: false
+      - key: RIMS_DB_PASSWORD
+        sync: false
+      - key: RIMS_SEED_ADMIN_EMAIL
+        sync: false
+      - key: RIMS_SEED_ADMIN_PASSWORD
+        sync: false

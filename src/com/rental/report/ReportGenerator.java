@@ -5,6 +5,7 @@ import com.rental.booking.BookingDAO;
 import com.rental.item.Item;
 import com.rental.item.ItemDAO;
 import com.rental.user.UserDAO;
+import com.rental.payment.PaymentDAO;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -14,6 +15,7 @@ public class ReportGenerator {
     private final ItemDAO itemDAO = new ItemDAO();
     private final BookingDAO bookingDAO = new BookingDAO();
     private final UserDAO userDAO = new UserDAO();
+    private final PaymentDAO paymentDAO = new PaymentDAO();
 
     public Map<String, Object> getAdminAnalytics() {
         Map<String, Object> data = new HashMap<>();
@@ -22,19 +24,19 @@ public class ReportGenerator {
         List<Booking> allRentals = bookingDAO.getAllBookings();
         int customerCount = userDAO.getTotalCustomerCount();
 
-        long availableCount = allItems.stream().filter(Item::isAvailable).count();
+        long availableCount = allItems.stream()
+            .filter(item -> itemDAO.isAvailableForRental(item.getItemId(), LocalDate.now(), LocalDate.now()))
+            .count();
         long rentedCount = allItems.size() - availableCount;
 
-        long activeRentals = allRentals.stream().filter(b -> "ACTIVE".equalsIgnoreCase(b.getStatus())).count();
+        long activeRentals = allRentals.stream().filter(b -> "ACTIVE".equalsIgnoreCase(b.getStatus())
+                || "CONFIRMED".equalsIgnoreCase(b.getStatus())).count();
         long pendingRentals = allRentals.stream().filter(b -> "PENDING".equalsIgnoreCase(b.getStatus())).count();
         long approvedRentals = allRentals.stream().filter(b -> "APPROVED".equalsIgnoreCase(b.getStatus())).count();
         long returnedRentals = allRentals.stream().filter(b -> "RETURNED".equalsIgnoreCase(b.getStatus())).count();
         long cancelledRentals = allRentals.stream().filter(b -> "CANCELLED".equalsIgnoreCase(b.getStatus()) || "REJECTED".equalsIgnoreCase(b.getStatus())).count();
 
-        double totalRevenue = allRentals.stream()
-            .filter(b -> !"CANCELLED".equalsIgnoreCase(b.getStatus()) && !"REJECTED".equalsIgnoreCase(b.getStatus()))
-            .mapToDouble(Booking::getTotalAmount)
-            .sum();
+        double totalRevenue = paymentDAO.getTotalRevenue();
 
         // 1. KPI Stats
         data.put("totalItems", allItems.size());
@@ -47,6 +49,7 @@ public class ReportGenerator {
         data.put("returnedRentals", returnedRentals);
         data.put("cancelledRentals", cancelledRentals);
         data.put("totalRevenue", totalRevenue);
+        data.putAll(paymentDAO.getFinancialSummary());
 
         // 2. Category Breakdown
         Map<String, Map<String, Object>> categoryStats = new LinkedHashMap<>();
@@ -64,7 +67,9 @@ public class ReportGenerator {
                     Map<String, Object> catMap = categoryStats.get(cat);
                     catMap.put("rentalCount", (int) catMap.get("rentalCount") + 1);
                     if (!"CANCELLED".equalsIgnoreCase(b.getStatus()) && !"REJECTED".equalsIgnoreCase(b.getStatus())) {
-                        catMap.put("revenue", (double) catMap.get("revenue") + b.getTotalAmount());
+                        double paidRental = "PAID".equalsIgnoreCase(b.getPaymentStatus()) ? b.getTotalAmount() : 0.0;
+                        double paidLateFee = "PAID".equalsIgnoreCase(b.getLateFeeStatus()) ? b.getLateFee() : 0.0;
+                        catMap.put("revenue", (double) catMap.get("revenue") + paidRental + paidLateFee);
                     }
                 }
             }

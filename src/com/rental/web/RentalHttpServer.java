@@ -52,6 +52,7 @@ public class RentalHttpServer {
         server.createContext("/api/auth/me", this::handleMe);
         server.createContext("/api/auth/logout", this::handleLogout);
         server.createContext("/api/profile", this::handleProfile);
+        server.createContext("/api/health", this::handleHealth);
 
         // Items (Public browse / Admin CRUD)
         server.createContext("/api/items", this::handleItems);
@@ -60,6 +61,7 @@ public class RentalHttpServer {
         server.createContext("/api/rentals/my", this::handleMyRentals);
         server.createContext("/api/rentals/status", this::handleRentalStatus);
         server.createContext("/api/rentals", this::handleRentals);
+        server.createContext("/api/payments/simulate", this::handleSimulateLateFeePayment);
 
         // Admin-only: Customers & Analytics
         server.createContext("/api/customers", this::handleCustomers);
@@ -73,7 +75,7 @@ public class RentalHttpServer {
         server.start();
         System.out.println("==========================================================");
         System.out.println("   RIMS (Rental Item Management System) is LIVE");
-        System.out.println("   Access URL: http://localhost:" + port);
+        System.out.println("   HTTP port: " + port);
         System.out.println("==========================================================");
     }
 
@@ -138,7 +140,7 @@ public class RentalHttpServer {
             return;
         }
 
-        String customerId = "CUST-" + (System.currentTimeMillis() % 1000000);
+        String customerId = "CUST-" + UUID.randomUUID();
         User customer = new User(customerId, name, email, "CUSTOMER", phone != null ? phone : "", "", LocalDate.now().toString());
 
         boolean ok = userDAO.registerCustomer(customer, password);
@@ -181,10 +183,11 @@ public class RentalHttpServer {
         String method = exchange.getRequestMethod().toUpperCase();
         if ("GET".equals(method)) {
             List<Booking> rentals = bookingDAO.getBookingsByUser(user.getUserId());
-            long active = rentals.stream().filter(r -> "ACTIVE".equalsIgnoreCase(r.getStatus()) || "APPROVED".equalsIgnoreCase(r.getStatus())).count();
+            long active = rentals.stream().filter(r -> "CONFIRMED".equalsIgnoreCase(r.getStatus())
+                    || "ACTIVE".equalsIgnoreCase(r.getStatus()) || "APPROVED".equalsIgnoreCase(r.getStatus())).count();
             double spent = rentals.stream()
-                .filter(r -> !"CANCELLED".equalsIgnoreCase(r.getStatus()) && !"REJECTED".equalsIgnoreCase(r.getStatus()))
-                .mapToDouble(Booking::getTotalAmount)
+                .mapToDouble(r -> ("PAID".equalsIgnoreCase(r.getPaymentStatus()) ? r.getTotalAmount() : 0.0)
+                        + ("PAID".equalsIgnoreCase(r.getLateFeeStatus()) ? r.getLateFee() : 0.0))
                 .sum();
 
             Map<String, Object> profileData = new HashMap<>();
@@ -228,10 +231,29 @@ public class RentalHttpServer {
                 String query = params.get("search");
                 String category = params.get("category");
                 String id = params.get("id");
+                User requestingUser = getAuthenticatedUser(exchange);
+                boolean adminView = requestingUser != null && requestingUser.isAdmin();
+                LocalDate rangeStart = null;
+                LocalDate rangeEnd = null;
+                try {
+                    if (params.containsKey("startDate") || params.containsKey("endDate")) {
+                        rangeStart = LocalDate.parse(params.get("startDate"));
+                        rangeEnd = LocalDate.parse(params.get("endDate"));
+                        if (!Validator.isValidDateRange(rangeStart, rangeEnd)) throw new IllegalArgumentException("Invalid date range");
+                    }
+                } catch (Exception e) {
+                    sendResponse(exchange, 400, "{\"error\":\"Provide valid startDate and endDate values (YYYY-MM-DD)\"}");
+                    return;
+                }
 
                 if (id != null && !id.isEmpty()) {
                     Item item = itemDAO.getItemById(id);
                     if (item != null) {
+                        if (!adminView) {
+                            LocalDate checkStart = rangeStart != null ? rangeStart : LocalDate.now();
+                            LocalDate checkEnd = rangeEnd != null ? rangeEnd : LocalDate.now();
+                            item.setAvailable(itemDAO.isAvailableForRental(id, checkStart, checkEnd));
+                        }
                         sendResponse(exchange, 200, JsonUtil.itemToJson(item));
                     } else {
                         sendResponse(exchange, 404, "{\"error\":\"Item not found\"}");
@@ -239,7 +261,10 @@ public class RentalHttpServer {
                     return;
                 }
 
-                List<Item> items = itemDAO.searchItems(query, category);
+                List<Item> items = adminView && (query == null || query.isBlank())
+                        && (category == null || category.isBlank()) && rangeStart == null
+                        ? itemDAO.getAllItems()
+                        : itemDAO.searchItems(query, category, rangeStart, rangeEnd);
                 sendResponse(exchange, 200, JsonUtil.listToJson(items));
             }
             case "POST" -> {
@@ -364,7 +389,12 @@ public class RentalHttpServer {
             String itemId = data.get("itemId");
             String startStr = data.get("startDate");
             String endStr = data.get("endDate");
-            String paymentMethod = data.getOrDefault("paymentMethod", "CREDIT_CARD");
+            String paymentMethod = data.getOrDefault("paymentMethod", "CREDIT_CARD").toUpperCase(Locale.ROOT);
+            if ("CASH".equals(paymentMethod)) paymentMethod = "CASH_ON_PICKUP";
+            if (!Set.of("UPI", "NET_BANKING", "CREDIT_CARD", "DEBIT_CARD", "CASH_ON_PICKUP").contains(paymentMethod)) {
+                sendResponse(exchange, 400, "{\"error\":\"Choose a supported simulated payment method\"}");
+                return;
+            }
 
             if (!Validator.isNotEmpty(itemId) || !Validator.isNotEmpty(startStr) || !Validator.isNotEmpty(endStr)) {
                 sendResponse(exchange, 400, "{\"error\":\"Please select rental start and end dates\"}");
@@ -376,15 +406,25 @@ public class RentalHttpServer {
                 sendResponse(exchange, 404, "{\"error\":\"Item not found\"}");
                 return;
             }
-            if (!item.isAvailable()) {
-                sendResponse(exchange, 400, "{\"error\":\"This item is currently unavailable or rented out.\"}");
+            LocalDate start;
+            LocalDate end;
+            try {
+                start = LocalDate.parse(startStr);
+                end = LocalDate.parse(endStr);
+            } catch (Exception e) {
+                sendResponse(exchange, 400, "{\"error\":\"Rental dates must use YYYY-MM-DD format\"}");
                 return;
             }
-
-            LocalDate start = LocalDate.parse(startStr);
-            LocalDate end = LocalDate.parse(endStr);
             if (!Validator.isValidDateRange(start, end)) {
                 sendResponse(exchange, 400, "{\"error\":\"Rental end date must be on or after start date\"}");
+                return;
+            }
+            if (!Validator.isFutureOrToday(start)) {
+                sendResponse(exchange, 400, "{\"error\":\"Rental start date cannot be in the past\"}");
+                return;
+            }
+            if (!itemDAO.isAvailableForRental(itemId, start, end)) {
+                sendResponse(exchange, 400, "{\"error\":\"This item is unavailable for the selected dates\"}");
                 return;
             }
 
@@ -392,26 +432,34 @@ public class RentalHttpServer {
             double dailyRate = item.getRentalPrice();
             double totalAmount = days * dailyRate;
 
-            String rentalId = "RNT-" + (System.currentTimeMillis() % 1000000);
-            boolean isCash = "CASH".equalsIgnoreCase(paymentMethod);
-            String bookingStatus = isCash ? "PENDING" : "ACTIVE";
-            String paymentStatus = isCash ? "PENDING" : "PAID";
+            String rentalId = "RNT-" + UUID.randomUUID();
+            boolean isCash = "CASH_ON_PICKUP".equals(paymentMethod);
+            String outcome = data.getOrDefault("paymentOutcome", "SUCCESS").toUpperCase(Locale.ROOT);
+            if (!isCash && !Set.of("SUCCESS", "FAILED").contains(outcome)) {
+                sendResponse(exchange, 400, "{\"error\":\"Invalid simulated payment outcome\"}");
+                return;
+            }
+            boolean paymentFailed = !isCash && "FAILED".equals(outcome);
+            String bookingStatus = paymentFailed ? "CANCELLED" : "CONFIRMED";
+            String paymentStatus = isCash ? "PENDING" : (paymentFailed ? "FAILED" : "PAID");
+            String demoRef = "PAID".equals(paymentStatus)
+                    ? "DEMO-" + UUID.randomUUID().toString().substring(0, 12).toUpperCase(Locale.ROOT)
+                    : null;
 
             Booking rental = new Booking(rentalId, customer, item, start, end, days, dailyRate, totalAmount, bookingStatus, LocalDate.now(), null);
             rental.setPaymentStatus(paymentStatus);
+            rental.setPaymentMethod(paymentMethod);
 
-            boolean success = bookingDAO.createBooking(rental);
+            Payment payment = new Payment("PAY-" + UUID.randomUUID(), rental, totalAmount, paymentMethod,
+                    LocalDate.now(), paymentStatus, "RENTAL", demoRef);
+            boolean success = bookingDAO.createBooking(rental, payment);
             if (!success) {
                 sendResponse(exchange, 400, "{\"error\":\"This item was just booked by another user or is currently unavailable.\"}");
                 return;
             }
 
-            // Record transaction
-            String paymentId = "PAY-" + (System.currentTimeMillis() % 1000000);
-            Payment payment = new Payment(paymentId, rental, totalAmount, paymentMethod, LocalDate.now(), paymentStatus);
-            paymentDAO.recordPayment(payment);
-
-            String resp = "{\"success\":true,\"rental\":" + JsonUtil.bookingToJson(rental) + ",\"payment\":" + JsonUtil.paymentToJson(payment) + "}";
+            String resp = "{\"success\":" + !paymentFailed + ",\"paymentFailed\":" + paymentFailed
+                    + ",\"rental\":" + JsonUtil.bookingToJson(rental) + ",\"payment\":" + JsonUtil.paymentToJson(payment) + "}";
             sendResponse(exchange, 201, resp);
         } else {
             sendResponse(exchange, 405, "{\"error\":\"Method not allowed\"}");
@@ -452,6 +500,7 @@ public class RentalHttpServer {
         Map<String, String> data = JsonUtil.parseSimpleJson(body);
         String rentalId = data.get("rentalId");
         String newStatus = data.get("status");
+        String returnDateInput = data.get("actualReturnDate");
 
         if (!Validator.isNotEmpty(rentalId) || !Validator.isNotEmpty(newStatus)) {
             sendResponse(exchange, 400, "{\"error\":\"Rental ID and status are required\"}");
@@ -474,15 +523,73 @@ public class RentalHttpServer {
                 sendResponse(exchange, 403, "{\"error\":\"Customers can only mark rentals as RETURNED or CANCELLED\"}");
                 return;
             }
+            if (returnDateInput != null && !returnDateInput.isEmpty()) {
+                sendResponse(exchange, 403, "{\"error\":\"Only an administrator can enter a recorded return date\"}");
+                return;
+            }
         }
 
-        boolean ok = bookingDAO.updateStatus(rentalId, newStatus);
+        LocalDate returnDate = LocalDate.now();
+        if ("RETURNED".equalsIgnoreCase(newStatus) && returnDateInput != null && !returnDateInput.isEmpty()) {
+            try {
+                returnDate = LocalDate.parse(returnDateInput);
+                if (returnDate.isAfter(LocalDate.now())) throw new IllegalArgumentException("Future return date");
+            } catch (Exception e) {
+                sendResponse(exchange, 400, "{\"error\":\"Return date must be a valid date no later than today\"}");
+                return;
+            }
+        }
+
+        boolean ok = "RETURNED".equalsIgnoreCase(newStatus)
+                ? bookingDAO.processReturn(rentalId, user.getUserId(), returnDate)
+                : bookingDAO.updateStatus(rentalId, newStatus);
         if (ok) {
             Booking updated = bookingDAO.getBookingById(rentalId);
             sendResponse(exchange, 200, "{\"success\":true,\"rental\":" + JsonUtil.bookingToJson(updated) + "}");
         } else {
             sendResponse(exchange, 500, "{\"error\":\"Failed to update rental status\"}");
         }
+    }
+
+    private void handleSimulateLateFeePayment(HttpExchange exchange) throws IOException {
+        if (handleCors(exchange)) return;
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendResponse(exchange, 405, "{\"error\":\"Method not allowed\"}");
+            return;
+        }
+        User user = getAuthenticatedUser(exchange);
+        if (user == null) {
+            sendResponse(exchange, 401, "{\"error\":\"Please sign in to pay this late fee\"}");
+            return;
+        }
+        Map<String, String> data = JsonUtil.parseSimpleJson(readBody(exchange));
+        String rentalId = data.get("rentalId");
+        String method = data.getOrDefault("paymentMethod", "UPI").toUpperCase(Locale.ROOT);
+        if (!Validator.isNotEmpty(rentalId) || !Set.of("UPI", "NET_BANKING", "CREDIT_CARD", "DEBIT_CARD").contains(method)) {
+            sendResponse(exchange, 400, "{\"error\":\"A rental ID and simulated payment method are required\"}");
+            return;
+        }
+        Booking rental = bookingDAO.getBookingById(rentalId);
+        if (rental == null) {
+            sendResponse(exchange, 404, "{\"error\":\"Rental record not found\"}");
+            return;
+        }
+        if (!user.isAdmin() && (rental.getUser() == null || !rental.getUser().getUserId().equals(user.getUserId()))) {
+            sendResponse(exchange, 403, "{\"error\":\"You cannot pay another customer's late fee\"}");
+            return;
+        }
+        if (!"PENDING".equalsIgnoreCase(rental.getLateFeeStatus())) {
+            sendResponse(exchange, 400, "{\"error\":\"There is no pending late fee for this rental\"}");
+            return;
+        }
+        if (!paymentDAO.settleLateFee(rentalId, method)) {
+            sendResponse(exchange, 409, "{\"error\":\"Late-fee payment could not be completed\"}");
+            return;
+        }
+        Payment payment = paymentDAO.getLateFeePayment(rentalId);
+        Booking updated = bookingDAO.getBookingById(rentalId);
+        sendResponse(exchange, 200, "{\"success\":true,\"rental\":" + JsonUtil.bookingToJson(updated)
+                + ",\"payment\":" + JsonUtil.paymentToJson(payment) + "}");
     }
 
     // -----------------------------------------------------------------
@@ -542,15 +649,27 @@ public class RentalHttpServer {
     }
 
     private boolean handleCors(HttpExchange exchange) throws IOException {
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
         if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
             exchange.sendResponseHeaders(204, -1);
             return true;
         }
         return false;
+    }
+
+    private void handleHealth(HttpExchange exchange) throws IOException {
+        if (handleCors(exchange)) return;
+        try (java.sql.Connection connection = DBConnection.getConnection();
+             java.sql.Statement statement = connection.createStatement();
+             java.sql.ResultSet result = statement.executeQuery("SELECT 1")) {
+            if (result.next()) {
+                sendResponse(exchange, 200, "{\"status\":\"ok\",\"database\":\"connected\"}");
+                return;
+            }
+        } catch (java.sql.SQLException e) {
+            sendResponse(exchange, 503, "{\"status\":\"unavailable\",\"database\":\"disconnected\"}");
+            return;
+        }
+        sendResponse(exchange, 503, "{\"status\":\"unavailable\",\"database\":\"disconnected\"}");
     }
 
     private String readBody(HttpExchange exchange) throws IOException {

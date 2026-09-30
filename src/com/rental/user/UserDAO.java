@@ -44,7 +44,16 @@ public class UserDAO {
                 if (rs.next()) {
                     String storedHash = rs.getString("password");
                     if (SecurityUtil.verifyPassword(plainPassword, storedHash)) {
-                        return mapResultSetToUser(rs);
+                        User authenticated = mapResultSetToUser(rs);
+                        if (SecurityUtil.needsPasswordUpgrade(storedHash)) {
+                            rs.close();
+                            try (PreparedStatement upgrade = conn.prepareStatement("UPDATE users SET password = ? WHERE user_id = ?")) {
+                                upgrade.setString(1, SecurityUtil.hashPassword(plainPassword));
+                                upgrade.setString(2, authenticated.getUserId());
+                                upgrade.executeUpdate();
+                            }
+                        }
+                        return authenticated;
                     }
                 }
             }
@@ -106,10 +115,13 @@ public class UserDAO {
         String sql = """
             SELECT u.user_id, u.name, u.email, u.phone, u.created_at,
                    COUNT(r.rental_id) AS total_rentals,
-                   SUM(CASE WHEN r.status IN ('ACTIVE', 'APPROVED') THEN 1 ELSE 0 END) AS active_rentals,
-                   COALESCE(SUM(CASE WHEN r.status != 'CANCELLED' AND r.status != 'REJECTED' THEN r.total_amount ELSE 0 END), 0) AS total_spent
+                   SUM(CASE WHEN r.status IN ('CONFIRMED','ACTIVE', 'APPROVED') THEN 1 ELSE 0 END) AS active_rentals,
+                   COALESCE(SUM(p.paid_amount), 0) AS total_spent
             FROM users u
             LEFT JOIN rentals r ON u.user_id = r.customer_id
+            LEFT JOIN (
+                SELECT rental_id, SUM(amount) AS paid_amount FROM payments WHERE status = 'PAID' GROUP BY rental_id
+            ) p ON p.rental_id = r.rental_id
             WHERE u.role = 'CUSTOMER'
             GROUP BY u.user_id, u.name, u.email, u.phone, u.created_at
             ORDER BY u.created_at DESC, u.name ASC;

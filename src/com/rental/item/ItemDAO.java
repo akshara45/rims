@@ -6,13 +6,14 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
 public class ItemDAO {
 
     public boolean addItem(Item item) {
-        String sql = "INSERT INTO items (item_id, name, category, description, rental_price, available, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO items (item_id, name, category, description, rental_price, rental_price_paise, available, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, item.getItemId());
@@ -20,8 +21,9 @@ public class ItemDAO {
             pstmt.setString(3, item.getCategory());
             pstmt.setString(4, item.getDescription());
             pstmt.setDouble(5, item.getRentalPrice());
-            pstmt.setInt(6, item.isAvailable() ? 1 : 0);
-            pstmt.setString(7, item.getImageUrl());
+            pstmt.setLong(6, Math.round(item.getRentalPrice() * 100));
+            pstmt.setInt(7, item.isAvailable() ? 1 : 0);
+            pstmt.setString(8, item.getImageUrl());
             return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             System.err.println("[ItemDAO] Error adding item: " + e.getMessage());
@@ -30,16 +32,17 @@ public class ItemDAO {
     }
 
     public boolean updateItem(Item item) {
-        String sql = "UPDATE items SET name = ?, category = ?, description = ?, rental_price = ?, available = ?, image_url = ? WHERE item_id = ?";
+        String sql = "UPDATE items SET name = ?, category = ?, description = ?, rental_price = ?, rental_price_paise = ?, available = ?, image_url = ? WHERE item_id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, item.getName());
             pstmt.setString(2, item.getCategory());
             pstmt.setString(3, item.getDescription());
             pstmt.setDouble(4, item.getRentalPrice());
-            pstmt.setInt(5, item.isAvailable() ? 1 : 0);
-            pstmt.setString(6, item.getImageUrl());
-            pstmt.setString(7, item.getItemId());
+            pstmt.setLong(5, Math.round(item.getRentalPrice() * 100));
+            pstmt.setInt(6, item.isAvailable() ? 1 : 0);
+            pstmt.setString(7, item.getImageUrl());
+            pstmt.setString(8, item.getItemId());
             return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             System.err.println("[ItemDAO] Error updating item: " + e.getMessage());
@@ -48,7 +51,7 @@ public class ItemDAO {
     }
 
     public boolean deleteItem(String itemId) {
-        String checkSql = "SELECT COUNT(*) FROM rentals WHERE item_id = ? AND status IN ('ACTIVE', 'APPROVED', 'PENDING')";
+        String checkSql = "SELECT COUNT(*) FROM rentals WHERE item_id = ? AND status IN ('ACTIVE', 'APPROVED', 'PENDING', 'CONFIRMED')";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement checkPstmt = conn.prepareStatement(checkSql)) {
             checkPstmt.setString(1, itemId);
@@ -133,7 +136,39 @@ public class ItemDAO {
         }
     }
 
+    public boolean isAvailableForRental(String itemId, LocalDate startDate, LocalDate endDate) {
+        Item item = getItemById(itemId);
+        if (item == null || !item.isAvailable() || startDate == null || endDate == null || endDate.isBefore(startDate)) {
+            return false;
+        }
+        String sql = """
+            SELECT COUNT(*) FROM rentals
+            WHERE item_id = ?
+              AND status NOT IN ('RETURNED', 'CANCELLED', 'REJECTED')
+              AND start_date < ?
+              AND (end_date > ? OR (end_date = start_date AND start_date >= ?))
+        """;
+        String requestedEndExclusive = endDate.isAfter(startDate) ? endDate.toString() : startDate.plusDays(1).toString();
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, itemId);
+            pstmt.setString(2, requestedEndExclusive);
+            pstmt.setString(3, startDate.toString());
+            pstmt.setString(4, startDate.toString());
+            try (ResultSet rs = pstmt.executeQuery()) {
+                return rs.next() && rs.getInt(1) == 0;
+            }
+        } catch (SQLException e) {
+            System.err.println("[ItemDAO] Error checking rental date availability: " + e.getMessage());
+            return false;
+        }
+    }
+
     public List<Item> searchItems(String query, String category) {
+        return searchItems(query, category, null, null);
+    }
+
+    public List<Item> searchItems(String query, String category, LocalDate startDate, LocalDate endDate) {
         List<Item> items = new ArrayList<>();
         StringBuilder sql = new StringBuilder("SELECT * FROM items WHERE 1=1 ");
         List<String> params = new ArrayList<>();
@@ -157,7 +192,13 @@ public class ItemDAO {
             }
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    items.add(mapResultSetToItem(rs));
+                    Item item = mapResultSetToItem(rs);
+                    if (startDate != null && endDate != null) {
+                        item.setAvailable(isAvailableForRental(item.getItemId(), startDate, endDate));
+                    } else {
+                        item.setAvailable(isAvailableForRental(item.getItemId(), LocalDate.now(), LocalDate.now()));
+                    }
+                    items.add(item);
                 }
             }
         } catch (SQLException e) {
@@ -172,7 +213,7 @@ public class ItemDAO {
             rs.getString("name"),
             rs.getString("category"),
             rs.getString("description"),
-            rs.getDouble("rental_price"),
+            rs.getLong("rental_price_paise") > 0 ? rs.getLong("rental_price_paise") / 100.0 : rs.getDouble("rental_price"),
             rs.getInt("available") == 1,
             rs.getString("image_url")
         );

@@ -4,6 +4,8 @@ import com.rental.item.Item;
 import com.rental.item.ItemDAO;
 import com.rental.user.User;
 import com.rental.user.UserDAO;
+import com.rental.payment.Payment;
+import com.rental.payment.PaymentDAO;
 import com.rental.util.DBConnection;
 
 import java.sql.Connection;
@@ -12,62 +14,103 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 
 public class BookingDAO {
     private final UserDAO userDAO = new UserDAO();
     private final ItemDAO itemDAO = new ItemDAO();
 
     public synchronized boolean createBooking(Booking booking) {
-        String checkAvailabilitySql = "SELECT available, rental_price FROM items WHERE item_id = ?";
-        String insertSql = "INSERT INTO rentals (rental_id, customer_id, item_id, start_date, end_date, number_of_days, daily_rate, total_amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        String updateItemSql = "UPDATE items SET available = 0 WHERE item_id = ?";
+        return createBooking(booking, null);
+    }
 
+    public synchronized boolean createBooking(Booking booking, Payment payment) {
+        String checkAvailabilitySql = "SELECT rental_price_paise, rental_price, available FROM items WHERE item_id = ? FOR UPDATE";
+        String overlapSql = """
+            SELECT COUNT(*) FROM rentals
+            WHERE item_id = ? AND status NOT IN ('RETURNED','CANCELLED','REJECTED')
+              AND start_date < ?
+              AND (end_date > ? OR (end_date = start_date AND start_date >= ?))
+        """;
+        String insertSql = """
+            INSERT INTO rentals (rental_id, customer_id, item_id, start_date, end_date, number_of_days,
+              daily_rate, total_amount, status, created_at, payment_status, payment_method, late_fee,
+              total_due, late_fee_status, daily_rate_paise, total_amount_paise)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'NOT_DUE', ?, ?)
+        """;
         try (Connection conn = DBConnection.getConnection()) {
             conn.setAutoCommit(false);
-
-            // 1. Strict server-side availability check
-            try (PreparedStatement checkStmt = conn.prepareStatement(checkAvailabilitySql)) {
-                checkStmt.setString(1, booking.getItem().getItemId());
-                try (ResultSet rs = checkStmt.executeQuery()) {
-                    if (!rs.next() || rs.getInt("available") != 1) {
-                        conn.rollback();
-                        System.err.println("[BookingDAO] Item is not available for rental.");
-                        return false;
+            try {
+                long ratePaise;
+                try (PreparedStatement stmt = conn.prepareStatement(checkAvailabilitySql)) {
+                    stmt.setString(1, booking.getItem().getItemId());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (!rs.next() || rs.getInt("available") != 1) {
+                            conn.rollback();
+                            return false;
+                        }
+                        ratePaise = rs.getLong("rental_price_paise");
+                        if (ratePaise <= 0) ratePaise = Math.round(rs.getDouble("rental_price") * 100);
                     }
-                    // Server calculates rate and total to prevent frontend manipulation
-                    double rate = rs.getDouble("rental_price");
-                    booking.setDailyRate(rate);
-                    booking.setTotalAmount(booking.getNumberOfDays() * rate);
                 }
-            }
+                LocalDate start = booking.getStartDate();
+                LocalDate end = booking.getEndDate();
+                String endExclusive = end.isAfter(start) ? end.toString() : start.plusDays(1).toString();
+                try (PreparedStatement stmt = conn.prepareStatement(overlapSql)) {
+                    stmt.setString(1, booking.getItem().getItemId());
+                    stmt.setString(2, endExclusive);
+                    stmt.setString(3, start.toString());
+                    stmt.setString(4, start.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next() && rs.getInt(1) > 0) {
+                            conn.rollback();
+                            return false;
+                        }
+                    }
+                }
 
-            // 2. Insert rental record
-            try (PreparedStatement pstmtRental = conn.prepareStatement(insertSql);
-                 PreparedStatement pstmtItem = conn.prepareStatement(updateItemSql)) {
+                int days = Booking.calculateDays(start, end);
+                double rate = ratePaise / 100.0;
+                double total = (ratePaise * (long) days) / 100.0;
+                booking.setNumberOfDays(days);
+                booking.setDailyRate(rate);
+                booking.setTotalAmount(total);
+                booking.setTotalDue(total);
+                if (payment != null) {
+                    payment.setAmount(total);
+                    booking.setPaymentStatus(payment.getStatus());
+                    booking.setPaymentMethod(payment.getMethod());
+                }
 
-                pstmtRental.setString(1, booking.getBookingId());
-                pstmtRental.setString(2, booking.getUser().getUserId());
-                pstmtRental.setString(3, booking.getItem().getItemId());
-                pstmtRental.setString(4, booking.getStartDate().toString());
-                pstmtRental.setString(5, booking.getEndDate().toString());
-                pstmtRental.setInt(6, booking.getNumberOfDays());
-                pstmtRental.setDouble(7, booking.getDailyRate());
-                pstmtRental.setDouble(8, booking.getTotalAmount());
-                pstmtRental.setString(9, booking.getStatus());
-                pstmtRental.setString(10, booking.getCreatedAt().toString());
-                pstmtRental.executeUpdate();
-
-                // 3. Mark item unavailable
-                pstmtItem.setString(1, booking.getItem().getItemId());
-                pstmtItem.executeUpdate();
-
+                try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+                    stmt.setString(1, booking.getBookingId());
+                    stmt.setString(2, booking.getUser().getUserId());
+                    stmt.setString(3, booking.getItem().getItemId());
+                    stmt.setString(4, start.toString());
+                    stmt.setString(5, end.toString());
+                    stmt.setInt(6, days);
+                    stmt.setDouble(7, rate);
+                    stmt.setDouble(8, total);
+                    stmt.setString(9, booking.getStatus());
+                    stmt.setString(10, booking.getCreatedAt().toString());
+                    stmt.setString(11, booking.getPaymentStatus());
+                    stmt.setString(12, booking.getPaymentMethod());
+                    stmt.setDouble(13, total);
+                    stmt.setLong(14, ratePaise);
+                    stmt.setLong(15, ratePaise * days);
+                    stmt.executeUpdate();
+                }
+                if (payment != null) PaymentDAO.recordPaymentInTransaction(conn, payment);
                 conn.commit();
                 return true;
-            } catch (SQLException e) {
+            } catch (SQLException | RuntimeException e) {
                 conn.rollback();
                 System.err.println("[BookingDAO] Rollback during rental creation: " + e.getMessage());
                 return false;
@@ -81,64 +124,100 @@ public class BookingDAO {
     }
 
     public synchronized boolean updateStatus(String rentalId, String newStatus) {
-        String getRentalSql = "SELECT item_id, status FROM rentals WHERE rental_id = ?";
-        String updateRentalSql = "UPDATE rentals SET status = ?, returned_at = ? WHERE rental_id = ?";
-        String updateItemSql = "UPDATE items SET available = ? WHERE item_id = ?";
+        String status = newStatus == null ? "" : newStatus.toUpperCase(Locale.ROOT);
+        if ("RETURNED".equals(status)) return processReturn(rentalId, null, LocalDate.now());
+        if (!Set.of("CONFIRMED", "ACTIVE", "APPROVED", "CANCELLED", "REJECTED").contains(status)) return false;
+        String sql = "UPDATE rentals SET status = ? WHERE rental_id = ? AND status NOT IN ('RETURNED','CANCELLED','REJECTED')";
+        try (Connection conn = DBConnection.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, status);
+            stmt.setString(2, rentalId);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.err.println("[BookingDAO] Error updating rental status: " + e.getMessage());
+            return false;
+        }
+    }
 
+    public synchronized boolean processReturn(String rentalId, String processedBy, LocalDate actualReturnDate) {
+        String getSql = "SELECT end_date, daily_rate_paise, daily_rate, status, total_amount FROM rentals WHERE rental_id = ?";
         try (Connection conn = DBConnection.getConnection()) {
             conn.setAutoCommit(false);
-            String itemId = null;
-            String currentStatus = null;
-
-            try (PreparedStatement stmt = conn.prepareStatement(getRentalSql)) {
-                stmt.setString(1, rentalId);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        itemId = rs.getString("item_id");
-                        currentStatus = rs.getString("status");
+            try {
+                LocalDate endDate;
+                long ratePaise;
+                String status;
+                double rentalAmount;
+                try (PreparedStatement stmt = conn.prepareStatement(getSql)) {
+                    stmt.setString(1, rentalId);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (!rs.next()) { conn.rollback(); return false; }
+                        endDate = LocalDate.parse(rs.getString("end_date"));
+                        ratePaise = rs.getLong("daily_rate_paise");
+                        if (ratePaise <= 0) ratePaise = Math.round(rs.getDouble("daily_rate") * 100);
+                        status = rs.getString("status");
+                        rentalAmount = rs.getDouble("total_amount");
                     }
                 }
-            }
-
-            if (itemId == null) {
-                conn.rollback();
-                return false;
-            }
-
-            String upperStatus = newStatus.toUpperCase();
-            String returnedDate = upperStatus.equals("RETURNED") ? LocalDate.now().toString() : null;
-
-            try (PreparedStatement stmtRental = conn.prepareStatement(updateRentalSql);
-                 PreparedStatement stmtItem = conn.prepareStatement(updateItemSql)) {
-
-                stmtRental.setString(1, upperStatus);
-                stmtRental.setString(2, returnedDate);
-                stmtRental.setString(3, rentalId);
-                stmtRental.executeUpdate();
-
-                // Determine if item should be available again
-                int availableStatus;
-                if (upperStatus.equals("RETURNED") || upperStatus.equals("CANCELLED") || upperStatus.equals("REJECTED")) {
-                    availableStatus = 1;
-                } else {
-                    availableStatus = 0;
+                if ("RETURNED".equalsIgnoreCase(status) || "CANCELLED".equalsIgnoreCase(status) || "REJECTED".equalsIgnoreCase(status)) {
+                    conn.rollback(); return false;
                 }
+                LocalDate returned = actualReturnDate == null ? LocalDate.now() : actualReturnDate;
+                if (returned.isAfter(LocalDate.now())) { conn.rollback(); return false; }
+                int daysLate = (int) Math.max(0, ChronoUnit.DAYS.between(endDate, returned));
+                long feeRatePaise = Math.round(ratePaise * 1.5d);
+                long feePaise = feeRatePaise * daysLate;
+                double fee = feePaise / 100.0;
+                String feeStatus = feePaise > 0 ? "PENDING" : "NOT_DUE";
 
-                stmtItem.setInt(1, availableStatus);
-                stmtItem.setString(2, itemId);
-                stmtItem.executeUpdate();
-
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO returns (return_id, rental_id, actual_return_date, days_late, processed_by, created_at) VALUES (?, ?, ?, ?, ?, ?)")) {
+                    stmt.setString(1, "RET-" + UUID.randomUUID());
+                    stmt.setString(2, rentalId);
+                    stmt.setString(3, returned.toString());
+                    stmt.setInt(4, daysLate);
+                    stmt.setString(5, processedBy);
+                    stmt.setString(6, LocalDate.now().toString());
+                    stmt.executeUpdate();
+                }
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO late_fees (late_fee_id, rental_id, days_late, rate_per_day_paise, amount_paise, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                    stmt.setString(1, "LFE-" + UUID.randomUUID());
+                    stmt.setString(2, rentalId);
+                    stmt.setInt(3, daysLate);
+                    stmt.setLong(4, feeRatePaise);
+                    stmt.setLong(5, feePaise);
+                    stmt.setString(6, feeStatus);
+                    stmt.setString(7, LocalDate.now().toString());
+                    stmt.executeUpdate();
+                }
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE rentals SET status='RETURNED', returned_at=?, late_days=?, late_fee=?, total_due=?, late_fee_status=? WHERE rental_id=?")) {
+                    stmt.setString(1, returned.toString());
+                    stmt.setInt(2, daysLate);
+                    stmt.setDouble(3, fee);
+                    stmt.setDouble(4, rentalAmount + fee);
+                    stmt.setString(5, feeStatus);
+                    stmt.setString(6, rentalId);
+                    stmt.executeUpdate();
+                }
+                if (feePaise > 0) {
+                    Booking paymentBooking = new Booking(rentalId, null, null, endDate, endDate,
+                            1, ratePaise / 100.0, rentalAmount, "RETURNED", LocalDate.now(), returned);
+                    Payment feePayment = new Payment("PAY-" + UUID.randomUUID(), paymentBooking, fee,
+                            "CASH_ON_PICKUP", LocalDate.now(), "PENDING", "LATE_FEE", null);
+                    PaymentDAO.recordPaymentInTransaction(conn, feePayment);
+                }
                 conn.commit();
                 return true;
-            } catch (SQLException e) {
+            } catch (SQLException | RuntimeException e) {
                 conn.rollback();
-                System.err.println("[BookingDAO] Rollback during status update: " + e.getMessage());
+                System.err.println("[BookingDAO] Return transaction rolled back: " + e.getMessage());
                 return false;
             } finally {
                 conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
-            System.err.println("[BookingDAO] Connection error: " + e.getMessage());
+            System.err.println("[BookingDAO] Error processing return: " + e.getMessage());
             return false;
         }
     }
@@ -208,11 +287,11 @@ public class BookingDAO {
                 COUNT(*) AS total_rentals,
                 SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) AS active_rentals,
                 SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END) AS approved_rentals,
-                SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending_rentals,
+                SUM(CASE WHEN status IN ('PENDING','CONFIRMED') THEN 1 ELSE 0 END) AS pending_rentals,
                 SUM(CASE WHEN status = 'RETURNED' THEN 1 ELSE 0 END) AS returned_rentals,
                 SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled_rentals,
                 SUM(CASE WHEN status = 'REJECTED' THEN 1 ELSE 0 END) AS rejected_rentals,
-                COALESCE(SUM(CASE WHEN status NOT IN ('CANCELLED', 'REJECTED') THEN total_amount ELSE 0 END), 0.0) AS total_revenue
+                (SELECT COALESCE(SUM(amount), 0.0) FROM payments WHERE status = 'PAID' AND payment_type = 'RENTAL') AS total_revenue
             FROM rentals;
         """;
         try (Connection conn = DBConnection.getConnection();
@@ -246,18 +325,25 @@ public class BookingDAO {
         String returnedAtStr = rs.getString("returned_at");
         LocalDate returnedAt = (returnedAtStr != null && !returnedAtStr.isEmpty()) ? LocalDate.parse(returnedAtStr) : null;
 
-        return new Booking(
+        Booking booking = new Booking(
             rs.getString("rental_id"),
             user,
             item,
             start,
             end,
             rs.getInt("number_of_days"),
-            rs.getDouble("daily_rate"),
-            rs.getDouble("total_amount"),
+            rs.getLong("daily_rate_paise") > 0 ? rs.getLong("daily_rate_paise") / 100.0 : rs.getDouble("daily_rate"),
+            rs.getLong("total_amount_paise") > 0 ? rs.getLong("total_amount_paise") / 100.0 : rs.getDouble("total_amount"),
             rs.getString("status"),
             createdAt,
             returnedAt
         );
+        booking.setPaymentStatus(rs.getString("payment_status"));
+        booking.setPaymentMethod(rs.getString("payment_method"));
+        booking.setLateFee(rs.getDouble("late_fee"));
+        booking.setTotalDue(rs.getDouble("total_due"));
+        booking.setLateFeeStatus(rs.getString("late_fee_status"));
+        booking.setLateDays(rs.getInt("late_days"));
+        return booking;
     }
 }

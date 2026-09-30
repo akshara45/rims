@@ -11,7 +11,7 @@ public class Main {
         System.out.println("============================================================");
 
         try {
-            // 1. Initialize SQLite Database & Seed Data
+            // 1. Initialize hosted PostgreSQL schema & seed empty tables
             System.out.println("[Main] Initializing database schema and seed data...");
             DBConnection.initializeDatabase();
 
@@ -37,7 +37,7 @@ public class Main {
             RentalHttpServer server = new RentalHttpServer(port);
             server.start();
 
-            System.out.println("[Main] Web application ready at: http://localhost:" + port);
+            System.out.println("[Main] Web application is listening on port " + port);
             System.out.println("[Main] Press Ctrl+C in terminal to stop the server.\n");
 
         } catch (Exception e) {

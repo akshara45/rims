@@ -25,6 +25,8 @@ replay_pid*
 
 # Database & build output
 *.db
+*.db.pre-migration-*.bak
 bin/
 out/
+target/
 !lib/*.jar

@@ -15,7 +15,12 @@ public class Booking {
     private double dailyRate;
     private double totalAmount;
     private String status; // "PENDING", "APPROVED", "ACTIVE", "RETURNED", "CANCELLED", "REJECTED"
-    private String paymentStatus; // "PENDING", "PAID"
+    private String paymentStatus; // Independent of booking status: PENDING, PAID, FAILED
+    private String paymentMethod;
+    private double lateFee;
+    private double totalDue;
+    private String lateFeeStatus;
+    private int lateDays;
     private LocalDate createdAt;
     private LocalDate returnedAt;
 
@@ -41,6 +46,12 @@ public class Booking {
         this.dailyRate = dailyRate > 0 ? dailyRate : (item != null ? item.getRentalPrice() : 0.0);
         this.totalAmount = totalAmount > 0 ? totalAmount : (this.numberOfDays * this.dailyRate);
         this.status = (status != null && !status.trim().isEmpty()) ? status.toUpperCase() : "ACTIVE";
+        this.paymentStatus = "PENDING";
+        this.paymentMethod = "CASH_ON_PICKUP";
+        this.lateFee = 0.0;
+        this.totalDue = this.totalAmount;
+        this.lateFeeStatus = "NOT_DUE";
+        this.lateDays = 0;
         this.createdAt = createdAt != null ? createdAt : LocalDate.now();
         this.returnedAt = returnedAt;
     }
@@ -74,12 +85,22 @@ public class Booking {
 
     public void setStatus(String status) { this.status = status; }
     public String getPaymentStatus() {
-        if (paymentStatus != null && !paymentStatus.trim().isEmpty()) {
-            return paymentStatus;
-        }
-        return "PENDING".equalsIgnoreCase(status) ? "PENDING" : "PAID";
+        return paymentStatus != null ? paymentStatus : "PENDING";
     }
     public void setPaymentStatus(String paymentStatus) { this.paymentStatus = paymentStatus; }
+    public String getPaymentMethod() { return paymentMethod; }
+    public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
+    public double getLateFee() { return lateFee; }
+    public void setLateFee(double lateFee) {
+        this.lateFee = Math.max(0.0, lateFee);
+        this.totalDue = this.totalAmount + this.lateFee;
+    }
+    public double getTotalDue() { return totalDue; }
+    public void setTotalDue(double totalDue) { this.totalDue = totalDue; }
+    public String getLateFeeStatus() { return lateFeeStatus; }
+    public void setLateFeeStatus(String lateFeeStatus) { this.lateFeeStatus = lateFeeStatus; }
+    public int getLateDays() { return lateDays; }
+    public void setLateDays(int lateDays) { this.lateDays = Math.max(0, lateDays); }
     public void setTotalAmount(double totalAmount) { this.totalAmount = totalAmount; }
     public void setDailyRate(double dailyRate) { this.dailyRate = dailyRate; }
     public void setNumberOfDays(int numberOfDays) { this.numberOfDays = numberOfDays; }

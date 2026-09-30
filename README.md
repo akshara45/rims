@@ -1,136 +1,86 @@
 # Item Rental Management System (RIMS)
 
-A professional, full-stack Java Item Rental Management System designed with strict role-based access control, persistent SQLite database storage, dynamic rental duration & pricing calculations in Indian Rupees (₹), and completely separated Customer and Administrator interfaces.
+RIMS is the existing Java + JDBC + DAO rental application with its original HTML, CSS, and vanilla JavaScript interface. The backend serves both the site and its API; application records are stored in one shared PostgreSQL database, not in the browser or on the web service's filesystem.
 
----
+## Architecture
 
-## 🏛️ System Architecture & User Roles
-
-The system enforces **exactly two roles**:
-1. **CUSTOMER**: Can register, browse inventory, rent items, calculate costs, track rental orders in "My Rentals", and manage profile details.
-2. **ADMIN**: Exactly ONE predefined administrator account (`admin@rental.com`). Admin registration is strictly prohibited. Admin has access to the Executive Operations Dashboard, Inventory CRUD, Customer Directory, Rental Approvals & Return Processing, and Financial Analytics.
-
-```
-                    LOGIN (/api/auth/login)
-                               |
-                      Backend verifies user
-                               |
-                 +-------------+-------------+
-                 |                           |
-             CUSTOMER                      ADMIN
-                 |                           |
-                 v                           v
-         Customer Interface           Admin Interface
-         - Explore Items              - Operations Dashboard
-         - Rent Now Modal             - Manage Inventory Items
-         - My Rentals                 - Manage Customers
-         - Customer Profile           - Manage Rentals & Returns
-                                      - Analytics & Reports
+```text
+Customer/Admin browser
+        | HTTPS, same-origin /api requests
+        v
+Public Java web service (Render Docker Web Service)
+        | PostgreSQL JDBC + TLS, credentials only in service environment
+        v
+Central PostgreSQL database (Neon)
 ```
 
----
+The existing DAO classes and API routes are retained. PostgreSQL is shared by every browser using the deployed backend. Authentication sessions are stored as hashed opaque tokens in PostgreSQL, so login state survives backend restarts and works across backend instances. Passwords use PBKDF2. Payments remain simulated; card fields are test-only and are never sent to the server.
 
-## 🎨 Theme & Visual Design
+## Requirements
 
-- **Primary Theme**: Clean Corporate SaaS Design (White Background + Professional Navy Blue)
-- **Primary Navy**: `#0F2747` | **Secondary Navy**: `#173B63` | **Accent Blue**: `#2563EB`
-- **Background**: `#F8FAFC` (Page) / `#FFFFFF` (Surface Cards & Modals)
-- **Currency**: **Indian Rupees (₹)** displayed everywhere across catalog, pricing calculators, receipts, and analytics.
+- Java 25 for local development
+- Maven 3.9 or newer
+- A PostgreSQL database (Neon is the suggested hosted option)
+- Docker for a local container build, if desired
 
----
+The PostgreSQL JDBC driver is managed by Maven (`org.postgresql:postgresql`). The old SQLite jar remains only for the one-time import utility; it is excluded from the deployed Docker image and is not used by the application backend.
 
-## 🛠️ Technology Stack
+## Environment variables
 
-- **Backend**: Java 21+ / Java 25 (Built-in `com.sun.net.httpserver.HttpServer` with Virtual Threads)
-- **Database**: SQLite with JDBC (`rental_system.db`)
-- **Security**: SHA-256 password hashing with salt, token-based session verification, role-based API authorization
-- **Frontend**: Semantic HTML5, Vanilla CSS3 (Professional White + Navy Corporate Theme, Inter typography), Vanilla JavaScript ES6+
-- **Architecture**: DAO Pattern (Data Access Objects) with RESTful API endpoints
+Set these in the Java process environment or hosting dashboard. Do not put database credentials in source files or frontend code.
 
----
+| Variable | Required | Description |
+|---|---|---|
+| `RIMS_DB_URL` | Yes | JDBC URL, e.g. `jdbc:postgresql://HOST/DB?sslmode=require` (use the host, database, and parameters shown by the database provider) |
+| `RIMS_DB_USER` | Yes | PostgreSQL username |
+| `RIMS_DB_PASSWORD` | Yes | PostgreSQL password |
+| `PORT` | Hosting | Public HTTP port supplied by the host; defaults to 8080 for local development |
+| `RIMS_SEED_ADMIN_EMAIL` | First empty database only | Email for the initial admin account |
+| `RIMS_SEED_ADMIN_PASSWORD` | First empty database only | Initial admin password, at least 12 characters |
 
-## 📁 Project Structure
+On first startup the application creates the schema and seeds the admin and sample equipment if their tables are empty. Existing user or equipment rows are not overwritten. The schema is initialized safely on repeated starts. Existing rental/booking status and payment status remain separate.
 
-```
-Rental-App-Management-System/
-├── src/
-│   ├── Main.java                          # Server bootstrap & initialization
-│   └── com/
-│       └── rental/
-│           ├── user/
-│           │   ├── User.java              # User domain model
-│           │   └── UserDAO.java           # Customer registration & DB operations
-│           ├── item/
-│           │   ├── Item.java              # Item domain model
-│           │   └── ItemDAO.java           # Inventory CRUD & availability ops
-│           ├── booking/
-│           │   ├── Booking.java           # Rental domain model & cost calculations
-│           │   └── BookingDAO.java        # Transactional booking & return handling
-│           ├── payment/
-│           │   ├── Payment.java           # Payment ledger model
-│           │   └── PaymentDAO.java        # Revenue calculation & transactions
-│           ├── report/
-│           │   └── ReportGenerator.java   # Real DB metrics & category breakdown
-│           ├── util/
-│           │   ├── DBConnection.java      # SQLite connection & seed initialization
-│           │   ├── SecurityUtil.java      # SHA-256 password hashing & session tokens
-│           │   ├── JsonUtil.java          # High-performance JSON serializer/parser
-│           │   └── Validator.java         # Data validation helpers
-│           └── web/
-│               └── RentalHttpServer.java  # Embedded HTTP server & REST controllers
-│
-├── web/
-│   ├── index.html                         # Unified Single-Page Application
-│   ├── style.css                          # White + Navy Corporate SaaS Theme
-│   └── app.js                             # Client-side state, auth, & API client
-│
-├── lib/                                   # SQLite JDBC & SLF4J native drivers
-├── run.bat                                # 1-Click build & launch script for Windows
-├── test_suite.ps1                         # Automated End-to-End Test Suite (32 tests)
-├── .gitignore
-└── README.md
-```
+## Local development against PostgreSQL
 
----
+Set the three database variables and, for an empty database, the two admin seed variables in your terminal. `PORT` is optional locally. Then run:
 
-## 🧪 Automated Testing
-
-To run the complete automated test suite validating all 32 functional, security, and financial features:
 ```powershell
-powershell -ExecutionPolicy Bypass -File "test_suite.ps1"
+mvn -B compile dependency:copy-dependencies -DoutputDirectory=target/dependency exec:java
 ```
 
----
+Open `http://localhost:8080`. A local PostgreSQL server or a hosted development database can be used; SQLite is not a runtime option.
 
-## 🚦 How to Run
+## Deploy to Render + Neon
 
-### Method 1: Using `run.bat` (Recommended)
-Double-click `run.bat` or run in terminal:
-```cmd
-run.bat
-```
+1. Create a PostgreSQL project in Neon and copy its PostgreSQL host, database, user, and password from the connection screen. Use TLS (`sslmode=require`).
+2. Push this project to a Git repository accessible by Render.
+3. In Render, create a **Web Service** from that repository and select its **Docker** runtime. The repository's `Dockerfile` builds and runs the Java service, copies the existing `web/` assets, and excludes the local SQLite database.
+4. Add `RIMS_DB_URL`, `RIMS_DB_USER`, and `RIMS_DB_PASSWORD` in the Render service's Environment settings. If the Neon database is empty, also set `RIMS_SEED_ADMIN_EMAIL` and a strong `RIMS_SEED_ADMIN_PASSWORD` before the first deploy.
+5. Deploy and use the public `onrender.com` URL. The UI calls relative `/api/...` endpoints, so each user reaches the same API and database without a separate frontend configuration.
 
-### Method 2: Manual Terminal Commands
-1. **Compile**:
+Free hosting is suitable for an academic demonstration but may sleep on inactivity. Neon compute can also scale to zero. The first request after idle can be delayed. Check provider plan/retention limits before relying on a free service for long-term data.
+
+## Import an existing SQLite database once
+
+The importer is insert-only: it refuses to run if any target application table already contains rows, uses a transaction, and never modifies or deletes the SQLite source. Run it **before** starting the application against the new empty PostgreSQL database. A current SQLite database with tables `users`, `items`, `rentals`, `payments`, `returns`, and `late_fees` is imported in foreign-key order.
+
+1. Back up `rental_system.db` separately and confirm `RIMS_SQLITE_SOURCE` points to the intended source file.
+2. Set `RIMS_DB_URL`, `RIMS_DB_USER`, and `RIMS_DB_PASSWORD` for the empty hosted PostgreSQL database.
+3. From PowerShell run:
+
 ```powershell
-javac -cp "lib/*" -d bin src/com/rental/*/*.java src/Main.java
+mvn -B package dependency:copy-dependencies -DoutputDirectory=target/dependency
+.\tools\import-sqlite-to-postgres.ps1
 ```
 
-2. **Run**:
+The importer copies matching columns and preserves IDs. After a successful import, deploy/start the Java application using the same PostgreSQL environment variables. Keep the local source and backup until you verify the hosted data.
+
+## Tests
+
+`test_suite.ps1` is the existing end-to-end suite and targets `http://localhost:8080`. Use a separate PostgreSQL test database. Start the app in one terminal with `mvn -B compile dependency:copy-dependencies -DoutputDirectory=target/dependency exec:java`, then run the suite in another:
+
 ```powershell
-java -cp "bin;lib/*" Main
+.\test_suite.ps1
 ```
 
-3. **Open in Browser**:
-Visit: **[http://localhost:8080](http://localhost:8080)**
-
----
-
-## 👥 Default Accounts
-
-| Role | Name | Email | Password | Access Level |
-|---|---|---|---|---|
-| **Admin** | System Administrator | `admin@rental.com` | `admin123` | Full Dashboard & Inventory Management |
-| **Customer** | Alex Rivera | `alex@example.com` | `customer123` | Equipment Catalog & Personal Rentals |
-| **Customer** | Priya Sharma | `priya@example.com` | `customer123` | Equipment Catalog & Personal Rentals |
-| **New Customers** | Any user | *Register via UI* | *Self-chosen* | Customer Portal |
+The suite creates demo accounts and rental/payment test rows in the database it targets. Use a separate test database when you need to preserve demo data.

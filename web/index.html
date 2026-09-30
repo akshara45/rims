@@ -249,6 +249,16 @@
                     <span class="kpi-value" id="kpi-total-rentals">0</span>
                     <span class="kpi-sub">Lifetime rental orders</span>
                 </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">PENDING PAYMENTS</span>
+                    <span class="kpi-value text-warning" id="kpi-pending-payments">0</span>
+                    <span class="kpi-sub">Cash-on-pickup and unpaid fees</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">LATE FEES DUE</span>
+                    <span class="kpi-value text-warning" id="kpi-late-fees-due">₹0</span>
+                    <span class="kpi-sub">Outstanding return charges</span>
+                </div>
             </div>
 
             <!-- Recent Rentals Table -->
@@ -267,6 +277,8 @@
                                 <th>Rental Period</th>
                                 <th>Daily Rate</th>
                                 <th>Total Amount</th>
+                                <th>Payment</th>
+                                <th>Late Fee / Due</th>
                                 <th>Status</th>
                                 <th>Action</th>
                             </tr>
@@ -370,6 +382,8 @@
                                 <th>Days</th>
                                 <th>Daily Rate</th>
                                 <th>Total (INR)</th>
+                                <th>Payment</th>
+                                <th>Late Fee / Due</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -515,92 +529,67 @@
                     <div class="form-group">
                         <label for="rental-payment-method">Payment Method *</label>
                         <select id="rental-payment-method" required onchange="handlePaymentMethodChange()">
-                            <option value="UPI">UPI / Net Banking (Instant QR)</option>
-                            <option value="CREDIT_CARD">Credit Card</option>
-                            <option value="DEBIT_CARD">Debit Card</option>
-                            <option value="CASH">Cash on Pickup</option>
+                            <option value="UPI">UPI (Simulated)</option>
+                            <option value="NET_BANKING">Net Banking (Simulated)</option>
+                            <option value="CREDIT_CARD">Credit Card (Test Only)</option>
+                            <option value="DEBIT_CARD">Debit Card (Test Only)</option>
+                            <option value="CASH_ON_PICKUP">Cash on Pickup (Demo)</option>
                         </select>
+                    </div>
+
+                    <div class="form-group" id="demo-payment-outcome-group">
+                        <label for="demo-payment-outcome">Simulated Payment Result</label>
+                        <select id="demo-payment-outcome" onchange="resetPaymentSimulation()">
+                            <option value="SUCCESS">Simulate successful payment</option>
+                            <option value="FAILED">Simulate failed payment</option>
+                        </select>
+                        <span class="form-hint">Test mode only. No money moves and no payment credentials are sent or stored.</span>
                     </div>
 
                     <!-- DYNAMIC PAYMENT METHOD: UPI -->
                     <div id="pay-section-upi" class="payment-method-box">
                         <div class="upi-amount-banner">
-                            <span>Amount to Pay via UPI:</span>
+                            <span>Demo amount:</span>
                             <strong class="upi-amount-value" id="upi-display-amount">₹4,500</strong>
                         </div>
                         <div class="upi-qr-card">
-                            <div class="qr-code-wrapper">
-                                <svg class="upi-qr-svg" viewBox="0 0 100 100" width="130" height="130">
-                                    <rect width="100" height="100" fill="#0A1124"/>
-                                    <!-- Position patterns -->
-                                    <rect x="6" y="6" width="26" height="26" fill="none" stroke="#60A5FA" stroke-width="4"/>
-                                    <rect x="12" y="12" width="14" height="14" fill="#60A5FA"/>
-                                    <rect x="68" y="6" width="26" height="26" fill="none" stroke="#60A5FA" stroke-width="4"/>
-                                    <rect x="74" y="12" width="14" height="14" fill="#60A5FA"/>
-                                    <rect x="6" y="68" width="26" height="26" fill="none" stroke="#60A5FA" stroke-width="4"/>
-                                    <rect x="12" y="74" width="14" height="14" fill="#60A5FA"/>
-                                    <!-- Timing & alignment dots -->
-                                    <rect x="38" y="10" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="52" y="10" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="38" y="24" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="52" y="24" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="10" y="38" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="24" y="38" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="10" y="52" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="24" y="52" width="6" height="6" fill="#93C5FD"/>
-                                    <!-- Center UPI badge -->
-                                    <rect x="38" y="38" width="24" height="24" rx="4" fill="#1E3A8A"/>
-                                    <text x="50" y="54" fill="#60A5FA" font-size="10" font-weight="900" text-anchor="middle" font-family="sans-serif">UPI</text>
-                                    <!-- Lower / right data dots -->
-                                    <rect x="70" y="38" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="84" y="44" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="70" y="54" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="38" y="70" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="52" y="80" width="6" height="6" fill="#93C5FD"/>
-                                    <rect x="68" y="70" width="10" height="10" fill="#60A5FA"/>
-                                    <rect x="82" y="82" width="10" height="10" fill="#3B82F6"/>
-                                </svg>
-                                <span class="qr-scan-badge">SCAN TO PAY</span>
-                            </div>
                             <div class="upi-instructions">
-                                <div class="upi-id-row">
-                                    <span class="upi-label">UPI ID:</span>
-                                    <code class="upi-code">rims.rentals@okhdfcbank</code>
-                                </div>
-                                <p class="upi-helper-text">Scan with Google Pay, PhonePe, Paytm, BHIM, or any banking UPI app.</p>
+                                <strong>SIMULATED PAYMENT — TEST MODE</strong>
+                                <p class="upi-helper-text">No QR code, bank account, UPI ID, or real transaction is used. Choose a simulated result above and continue.</p>
                             </div>
                         </div>
                         <button type="button" class="btn btn-primary btn-block upi-action-btn" id="btn-upi-pay" onclick="confirmUpiPayment()">
-                            Pay <span id="upi-btn-amount">₹4,500</span> via UPI
+                            Simulate <span id="upi-btn-amount">₹4,500</span> payment
                         </button>
                         <div class="upi-confirmed-banner" id="upi-confirmed-banner" style="display:none;">
                             <span class="confirmed-check">✓</span>
                             <div>
-                                <strong>UPI Payment Confirmed</strong>
-                                <div class="text-sm">Txn Ref: <code id="upi-txn-id">UPI-89421</code> • Verified & Ready</div>
+                                <strong>Simulated payment result selected</strong>
+                                <div class="text-sm">The demo payment record is created when you confirm the rental.</div>
                             </div>
                         </div>
                     </div>
 
                     <!-- DYNAMIC PAYMENT METHOD: CARD (CREDIT / DEBIT) -->
                     <div id="pay-section-card" class="payment-method-box" style="display:none;">
-                        <div class="card-method-heading" id="card-method-title">Credit Card Payment Details</div>
+                        <div class="card-method-heading" id="card-method-title">Credit Card Test Fields</div>
+                        <p class="form-hint mb-3">Test-only values are checked in your browser and are never sent to or stored by the server. Use the displayed demo values only.</p>
                         <div class="form-group">
-                            <label for="card-holder-name">Cardholder Name *</label>
-                            <input type="text" id="card-holder-name" placeholder="Name as printed on card">
+                            <label for="card-holder-name">Demo Cardholder *</label>
+                            <input type="text" id="card-holder-name" placeholder="Demo User" autocomplete="off">
                         </div>
                         <div class="form-group">
-                            <label for="card-number">Card Number *</label>
-                            <input type="text" id="card-number" placeholder="4532 •••• •••• 8920" maxlength="19" oninput="formatCardNumber(this)">
+                            <label for="card-number">Test Card Number *</label>
+                            <input type="text" id="card-number" placeholder="0000 0000 0000 0000" maxlength="19" autocomplete="off" oninput="formatCardNumber(this)">
                         </div>
                         <div class="form-grid-2">
                             <div class="form-group">
                                 <label for="card-expiry">Expiry Date (MM/YY) *</label>
-                                <input type="text" id="card-expiry" placeholder="MM/YY" maxlength="5" oninput="formatCardExpiry(this)">
+                                <input type="text" id="card-expiry" placeholder="12/30" maxlength="5" autocomplete="off" oninput="formatCardExpiry(this)">
                             </div>
                             <div class="form-group">
                                 <label for="card-cvv">Security Code (CVV) *</label>
-                                <input type="password" id="card-cvv" placeholder="•••" maxlength="4">
+                                <input type="password" id="card-cvv" placeholder="000" maxlength="3" autocomplete="off">
                             </div>
                         </div>
                     </div>
