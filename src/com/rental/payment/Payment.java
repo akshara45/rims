@@ -7,27 +7,36 @@ public class Payment {
     private String paymentId;
     private Booking booking;
     private double amount;
-    private String method;
+    private String method; // "CREDIT_CARD", "DEBIT_CARD", "PAYPAL", "CASH"
     private LocalDate paymentDate;
-    private String status; // "PAID", "PENDING"
+    private String status; // "PAID", "PENDING", "REFUNDED"
 
     public Payment(String paymentId, Booking booking, double amount, String method) {
+        this(paymentId, booking, amount, method, LocalDate.now(), "PAID");
+    }
+
+    public Payment(String paymentId, Booking booking, double amount, String method, LocalDate paymentDate, String status) {
         this.paymentId = paymentId;
         this.booking = booking;
         this.amount = amount;
-        this.method = method;
-        this.paymentDate = LocalDate.now();
-        this.status = "PAID";
+        this.method = (method != null && !method.trim().isEmpty()) ? method : "CREDIT_CARD";
+        this.paymentDate = paymentDate != null ? paymentDate : LocalDate.now();
+        this.status = (status != null && !status.trim().isEmpty()) ? status : "PAID";
     }
 
     public String getPaymentId() { return paymentId; }
     public Booking getBooking() { return booking; }
     public double getAmount() { return amount; }
     public String getMethod() { return method; }
+    public LocalDate getPaymentDate() { return paymentDate; }
     public String getStatus() { return status; }
+
+    public void setStatus(String status) { this.status = status; }
+    public void setMethod(String method) { this.method = method; }
 
     @Override
     public String toString() {
-        return "Payment{id=" + paymentId + ", amount=" + amount + ", method=" + method + ", status=" + status + "}";
+        return "Payment{id=" + paymentId + ", booking=" + (booking != null ? booking.getBookingId() : "N/A") 
+             + ", amount=" + amount + ", method=" + method + ", status=" + status + ", date=" + paymentDate + "}";
     }
 }

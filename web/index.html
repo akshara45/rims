@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RIMS | Rental Item Management System</title>
+    <meta name="description" content="Professional digitized Item Rental Management System. Browse items, calculate rental durations, manage returns, and oversee fleet inventory.">
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+        <div class="header-container">
+            <!-- Brand Logo -->
+            <div class="brand-wrapper" id="brand-link" onclick="handleBrandClick()">
+                <div class="brand-badge">RIMS</div>
+                <div class="brand-details">
+                    <span class="brand-title" id="header-brand-title">Rental Item Management System</span>
+                </div>
+            </div>
+
+            <!-- CUSTOMER NAVIGATION (Visible only to Customers) -->
+            <nav class="nav-links" id="customer-nav" style="display:none;">
+                <button class="nav-link active" id="c-nav-explore" onclick="showCustomerView('explore')">Explore Items</button>
+                <button class="nav-link" id="c-nav-rentals" onclick="showCustomerView('rentals')">
+                    My Rentals <span class="nav-counter" id="customer-active-badge">0</span>
+                </button>
+                <button class="nav-link" id="c-nav-profile" onclick="showCustomerView('profile')">Profile</button>
+                <button class="nav-link nav-logout" onclick="logout()">Logout</button>
+            </nav>
+
+            <!-- ADMIN NAVIGATION (Visible only to Admin) -->
+            <nav class="nav-links" id="admin-nav" style="display:none;">
+                <button class="nav-link active" id="a-nav-dashboard" onclick="showAdminView('dashboard')">Dashboard</button>
+                <button class="nav-link" id="a-nav-items" onclick="showAdminView('items')">Manage Items</button>
+                <button class="nav-link" id="a-nav-customers" onclick="showAdminView('customers')">Manage Customers</button>
+                <button class="nav-link" id="a-nav-rentals" onclick="showAdminView('rentals')">Manage Rentals</button>
+                <button class="nav-link" id="a-nav-analytics" onclick="showAdminView('analytics')">Analytics</button>
+                <button class="nav-link nav-logout" onclick="logout()">Logout</button>
+            </nav>
+
+            <!-- GUEST / PUBLIC NAVIGATION (When not logged in) -->
+            <div class="guest-nav" id="guest-nav">
+                <button class="btn btn-header-signin btn-sm" onclick="openLoginModal('login')">Sign In</button>
+                <button class="btn btn-header-register btn-sm" onclick="openLoginModal('register')">Register as Customer</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-container">
+
+        <!-- ============================================================== -->
+        <!-- VIEW: GUEST / CUSTOMER EXPLORE ITEMS                           -->
+        <!-- ============================================================== -->
+        <section id="view-customer-explore" class="app-view active">
+            <!-- Standard Page Header -->
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">Equipment Rental</h1>
+                    <p class="page-subtitle">Find and reserve the equipment you need.</p>
+                </div>
+            </div>
+
+            <!-- Standard Toolbar: Search, Filters & Categories -->
+            <div class="catalog-toolbar">
+                <div class="toolbar-search-row">
+                    <div class="search-input-box">
+                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" id="catalog-search-input" placeholder="Search equipment by name, category..." oninput="handleCatalogSearch()">
+                    </div>
+                    <label class="checkbox-filter">
+                        <input type="checkbox" id="filter-available-checkbox" onchange="handleCatalogFilter()">
+                        <span>Available Only</span>
+                    </label>
+                </div>
+
+                <div class="category-filter-list" id="category-filter-buttons">
+                    <button class="category-btn active" data-cat="ALL" onclick="filterByCategory('ALL')">All Categories</button>
+                    <button class="category-btn" data-cat="Photography" onclick="filterByCategory('Photography')">Photography</button>
+                    <button class="category-btn" data-cat="Electronics" onclick="filterByCategory('Electronics')">Electronics</button>
+                    <button class="category-btn" data-cat="Audio & Sound" onclick="filterByCategory('Audio & Sound')">Audio & Sound</button>
+                    <button class="category-btn" data-cat="Tools" onclick="filterByCategory('Tools')">Tools</button>
+                    <button class="category-btn" data-cat="Outdoor & Camping" onclick="filterByCategory('Outdoor & Camping')">Outdoor & Camping</button>
+                    <button class="category-btn" data-cat="Sports & Mobility" onclick="filterByCategory('Sports & Mobility')">Sports & Mobility</button>
+                    <button class="category-btn" data-cat="Gaming" onclick="filterByCategory('Gaming')">Gaming</button>
+                    <button class="category-btn" data-cat="Other" onclick="filterByCategory('Other')">Other</button>
+                </div>
+            </div>
+
+            <!-- Results Meta Row -->
+            <div class="catalog-meta-row">
+                <span class="catalog-count-text" id="catalog-results-count">Showing all items</span>
+            </div>
+
+            <!-- Items Catalog Grid -->
+            <div class="items-card-grid" id="items-grid-container">
+                <div class="loading-state">
+                    <div class="loader-spinner"></div>
+                    <p>Loading rental catalog...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: CUSTOMER MY RENTALS                                      -->
+        <!-- ============================================================== -->
+        <section id="view-customer-rentals" class="app-view">
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">My Rental Bookings</h1>
+                    <p class="page-subtitle">Track your active equipment rentals, review rental dates, and manage returns.</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="loadMyRentals()">Refresh</button>
+            </div>
+
+            <div class="rentals-list-container" id="my-rentals-list">
+                <!-- Populated dynamically -->
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: CUSTOMER PROFILE                                         -->
+        <!-- ============================================================== -->
+        <section id="view-customer-profile" class="app-view">
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">My Profile & Account</h1>
+                    <p class="page-subtitle">View and update your personal contact details and rental overview.</p>
+                </div>
+            </div>
+
+            <div class="profile-layout">
+                <!-- Profile Summary Card -->
+                <div class="card profile-info-card">
+                    <div class="profile-header">
+                        <div class="profile-avatar" id="profile-avatar-letters">AR</div>
+                        <div>
+                            <h2 class="profile-name" id="profile-display-name">Alex Rivera</h2>
+                            <span class="badge badge-success" id="profile-role-badge">Verified Customer</span>
+                        </div>
+                    </div>
+
+                    <div class="profile-details-list">
+                        <div class="profile-detail-item">
+                            <span class="detail-label">Email Address</span>
+                            <span class="detail-value" id="profile-display-email">alex@example.com</span>
+                        </div>
+                        <div class="profile-detail-item">
+                            <span class="detail-label">Phone Number</span>
+                            <span class="detail-value" id="profile-display-phone">+91 98765 11111</span>
+                        </div>
+                        <div class="profile-detail-item">
+                            <span class="detail-label">Member Since</span>
+                            <span class="detail-value" id="profile-display-date">2026-09-29</span>
+                        </div>
+                    </div>
+
+                    <div class="profile-stats-grid">
+                        <div class="stat-box">
+                            <span class="stat-box-num" id="profile-stat-total">0</span>
+                            <span class="stat-box-label">Total Rentals</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-box-num" id="profile-stat-active">0</span>
+                            <span class="stat-box-label">Active Rentals</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-box-num" id="profile-stat-spent">₹0</span>
+                            <span class="stat-box-label">Total Spent</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit Profile Form -->
+                <div class="card profile-edit-card">
+                    <h3 class="card-title mb-4">Edit Personal Information</h3>
+                    <form id="profile-edit-form" onsubmit="submitProfileUpdate(event)">
+                        <div class="form-group">
+                            <label for="edit-profile-name">Full Name *</label>
+                            <input type="text" id="edit-profile-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-profile-phone">Contact Phone *</label>
+                            <input type="tel" id="edit-profile-phone" placeholder="+91 98765 43210" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Email Address</label>
+                            <input type="email" id="edit-profile-email" disabled class="input-disabled">
+                            <small class="form-hint">Email address cannot be changed once verified.</small>
+                        </div>
+                        <div class="mt-4 flex-gap">
+                            <button type="submit" class="btn btn-primary" id="btn-save-profile">Save Changes</button>
+                            <button type="button" class="btn btn-outline" onclick="logout()">Sign Out</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: ADMIN DASHBOARD                                          -->
+        <!-- ============================================================== -->
+        <section id="view-admin-dashboard" class="app-view">
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">Executive Operations Dashboard</h1>
+                    <p class="page-subtitle">Real-time database metrics, inventory availability, and rental activity.</p>
+                </div>
+                <div class="flex-gap">
+                    <button class="btn btn-primary btn-sm" onclick="openAddItemModal()">+ Add New Item</button>
+                    <button class="btn btn-secondary btn-sm" onclick="loadAdminDashboardData()">Refresh Data</button>
+                </div>
+            </div>
+
+            <!-- KPI Metric Cards -->
+            <div class="dashboard-kpi-grid">
+                <div class="kpi-card">
+                    <span class="kpi-label">TOTAL REVENUE</span>
+                    <span class="kpi-value text-primary" id="kpi-total-revenue">₹0.00</span>
+                    <span class="kpi-sub">Total collected revenue</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">TOTAL ITEMS</span>
+                    <span class="kpi-value" id="kpi-total-items">0</span>
+                    <span class="kpi-sub">In inventory catalog</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">AVAILABLE ITEMS</span>
+                    <span class="kpi-value text-success" id="kpi-available-items">0</span>
+                    <span class="kpi-sub">Ready to rent</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">ACTIVE RENTALS</span>
+                    <span class="kpi-value text-warning" id="kpi-active-rentals">0</span>
+                    <span class="kpi-sub">Currently out on loan</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">TOTAL CUSTOMERS</span>
+                    <span class="kpi-value" id="kpi-total-customers">0</span>
+                    <span class="kpi-sub">Registered accounts</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">TOTAL RENTALS</span>
+                    <span class="kpi-value" id="kpi-total-rentals">0</span>
+                    <span class="kpi-sub">Lifetime rental orders</span>
+                </div>
+            </div>
+
+            <!-- Recent Rentals Table -->
+            <div class="card mt-6">
+                <div class="card-header-row">
+                    <h3 class="card-title">Recent Rental Operations</h3>
+                    <button class="btn btn-outline btn-sm" onclick="showAdminView('rentals')">View All Rentals</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Rental ID</th>
+                                <th>Customer</th>
+                                <th>Item</th>
+                                <th>Rental Period</th>
+                                <th>Daily Rate</th>
+                                <th>Total Amount</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-recent-rentals-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: ADMIN MANAGE ITEMS                                       -->
+        <!-- ============================================================== -->
+        <section id="view-admin-items" class="app-view">
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">Manage Inventory Items</h1>
+                    <p class="page-subtitle">Add, edit, adjust daily rates (₹), toggle availability, and remove catalog items.</p>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="openAddItemModal()">+ Add New Item</button>
+            </div>
+
+            <div class="card">
+                <div class="table-responsive">
+                    <table class="admin-table" id="admin-items-table">
+                        <thead>
+                            <tr>
+                                <th>Item ID</th>
+                                <th>Item Name & Category</th>
+                                <th>Daily Rate (INR)</th>
+                                <th>Availability Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-items-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: ADMIN MANAGE CUSTOMERS                                   -->
+        <!-- ============================================================== -->
+        <section id="view-admin-customers" class="app-view">
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">Manage Customers</h1>
+                    <p class="page-subtitle">Directory of registered customers with rental counts and historical spend.</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="table-responsive">
+                    <table class="admin-table" id="admin-customers-table">
+                        <thead>
+                            <tr>
+                                <th>Customer ID</th>
+                                <th>Customer Name</th>
+                                <th>Email Address</th>
+                                <th>Phone Number</th>
+                                <th>Registered Date</th>
+                                <th>Total Rentals</th>
+                                <th>Active Loans</th>
+                                <th>Total Spent</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-customers-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: ADMIN MANAGE RENTALS                                     -->
+        <!-- ============================================================== -->
+        <section id="view-admin-rentals" class="app-view">
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">Manage Rentals & Returns</h1>
+                    <p class="page-subtitle">Centralized tracking of all customer rentals with approval, return, and cancellation controls.</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="loadAdminRentals()">Refresh</button>
+            </div>
+
+            <div class="card">
+                <div class="table-responsive">
+                    <table class="admin-table" id="admin-rentals-table">
+                        <thead>
+                            <tr>
+                                <th>Rental ID</th>
+                                <th>Customer</th>
+                                <th>Item</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Days</th>
+                                <th>Daily Rate</th>
+                                <th>Total (INR)</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-rentals-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- VIEW: ADMIN ANALYTICS                                          -->
+        <!-- ============================================================== -->
+        <section id="view-admin-analytics" class="app-view">
+            <div class="view-header-row">
+                <div>
+                    <h1 class="page-title">System Analytics & Financial Reports</h1>
+                    <p class="page-subtitle">Live database performance metrics, category revenue distribution, and top equipment.</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="window.print()">Print Report</button>
+            </div>
+
+            <!-- Analytics Metric Cards -->
+            <div class="dashboard-kpi-grid">
+                <div class="kpi-card">
+                    <span class="kpi-label">TOTAL REVENUE</span>
+                    <span class="kpi-value text-primary" id="analytics-total-revenue">₹0.00</span>
+                    <span class="kpi-sub">Collected from active & completed rentals</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">ACTIVE RENTALS</span>
+                    <span class="kpi-value text-warning" id="analytics-active-rentals">0</span>
+                    <span class="kpi-sub">Units currently in customer hands</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">RETURNED RENTALS</span>
+                    <span class="kpi-value text-success" id="analytics-returned-rentals">0</span>
+                    <span class="kpi-sub">Successfully returned to inventory</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">CANCELLED / REJECTED</span>
+                    <span class="kpi-value text-muted" id="analytics-cancelled-rentals">0</span>
+                    <span class="kpi-sub">Cancelled or rejected bookings</span>
+                </div>
+            </div>
+
+            <div class="analytics-two-col mt-6">
+                <!-- Category Breakdown Table -->
+                <div class="card">
+                    <h3 class="card-title mb-3">Inventory & Revenue by Category</h3>
+                    <div class="table-responsive">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Items Count</th>
+                                    <th>Rentals Count</th>
+                                    <th>Revenue (INR)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analytics-category-tbody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Top Rented Items -->
+                <div class="card">
+                    <h3 class="card-title mb-3">Most Rented Equipment</h3>
+                    <div class="table-responsive">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Item Name</th>
+                                    <th>Total Times Rented</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analytics-top-items-tbody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: RENT ITEM (Customer Rental Flow)                        -->
+    <!-- ============================================================== -->
+    <div class="modal-overlay" id="modal-rental" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="rental-modal-title">Rent Equipment</h3>
+                    <p class="modal-subtitle">Confirm your booking schedule and review pricing breakdown</p>
+                </div>
+                <button class="modal-close" onclick="closeModal('modal-rental')">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Item Preview Banner -->
+                <div class="rental-item-preview">
+                    <div class="item-preview-icon" id="rental-preview-icon">📷</div>
+                    <div>
+                        <span class="preview-cat-badge" id="rental-preview-category">Photography</span>
+                        <h4 class="preview-item-name" id="rental-preview-name">Sony Alpha A7 IV</h4>
+                        <div class="preview-daily-rate">Daily Rate: <strong id="rental-preview-price">₹4,500</strong> / day</div>
+                    </div>
+                </div>
+
+                <form id="rental-booking-form" onsubmit="submitRentalBooking(event)">
+                    <input type="hidden" id="rental-item-id">
+
+                    <div class="form-grid-2">
+                        <div class="form-group">
+                            <label for="rental-start-date">Start Date *</label>
+                            <input type="date" id="rental-start-date" required onchange="updateRentalCalculation()">
+                        </div>
+                        <div class="form-group">
+                            <label for="rental-end-date">End Date *</label>
+                            <input type="date" id="rental-end-date" required onchange="updateRentalCalculation()">
+                        </div>
+                    </div>
+
+                    <!-- Late Fee Policy Section -->
+                    <div class="late-fee-card">
+                        <div class="late-fee-header">
+                            <span class="late-fee-icon">⚠️</span>
+                            <span class="late-fee-title">Late Return Policy</span>
+                        </div>
+                        <p class="late-fee-desc">
+                            Applicable late fee for this scheduled reservation: <strong class="text-success font-semibold" id="rental-curr-late-fee">₹0</strong>.<br>
+                            Returns past the scheduled end date incur an additional late charge of <strong id="rental-late-rate" class="text-warning">₹0 per extra day</strong>.
+                        </p>
+                    </div>
+
+                    <!-- Payment Method Selector -->
+                    <div class="form-group">
+                        <label for="rental-payment-method">Payment Method *</label>
+                        <select id="rental-payment-method" required onchange="handlePaymentMethodChange()">
+                            <option value="UPI">UPI / Net Banking (Instant QR)</option>
+                            <option value="CREDIT_CARD">Credit Card</option>
+                            <option value="DEBIT_CARD">Debit Card</option>
+                            <option value="CASH">Cash on Pickup</option>
+                        </select>
+                    </div>
+
+                    <!-- DYNAMIC PAYMENT METHOD: UPI -->
+                    <div id="pay-section-upi" class="payment-method-box">
+                        <div class="upi-amount-banner">
+                            <span>Amount to Pay via UPI:</span>
+                            <strong class="upi-amount-value" id="upi-display-amount">₹4,500</strong>
+                        </div>
+                        <div class="upi-qr-card">
+                            <div class="qr-code-wrapper">
+                                <svg class="upi-qr-svg" viewBox="0 0 100 100" width="130" height="130">
+                                    <rect width="100" height="100" fill="#0A1124"/>
+                                    <!-- Position patterns -->
+                                    <rect x="6" y="6" width="26" height="26" fill="none" stroke="#60A5FA" stroke-width="4"/>
+                                    <rect x="12" y="12" width="14" height="14" fill="#60A5FA"/>
+                                    <rect x="68" y="6" width="26" height="26" fill="none" stroke="#60A5FA" stroke-width="4"/>
+                                    <rect x="74" y="12" width="14" height="14" fill="#60A5FA"/>
+                                    <rect x="6" y="68" width="26" height="26" fill="none" stroke="#60A5FA" stroke-width="4"/>
+                                    <rect x="12" y="74" width="14" height="14" fill="#60A5FA"/>
+                                    <!-- Timing & alignment dots -->
+                                    <rect x="38" y="10" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="52" y="10" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="38" y="24" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="52" y="24" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="10" y="38" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="24" y="38" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="10" y="52" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="24" y="52" width="6" height="6" fill="#93C5FD"/>
+                                    <!-- Center UPI badge -->
+                                    <rect x="38" y="38" width="24" height="24" rx="4" fill="#1E3A8A"/>
+                                    <text x="50" y="54" fill="#60A5FA" font-size="10" font-weight="900" text-anchor="middle" font-family="sans-serif">UPI</text>
+                                    <!-- Lower / right data dots -->
+                                    <rect x="70" y="38" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="84" y="44" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="70" y="54" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="38" y="70" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="52" y="80" width="6" height="6" fill="#93C5FD"/>
+                                    <rect x="68" y="70" width="10" height="10" fill="#60A5FA"/>
+                                    <rect x="82" y="82" width="10" height="10" fill="#3B82F6"/>
+                                </svg>
+                                <span class="qr-scan-badge">SCAN TO PAY</span>
+                            </div>
+                            <div class="upi-instructions">
+                                <div class="upi-id-row">
+                                    <span class="upi-label">UPI ID:</span>
+                                    <code class="upi-code">rims.rentals@okhdfcbank</code>
+                                </div>
+                                <p class="upi-helper-text">Scan with Google Pay, PhonePe, Paytm, BHIM, or any banking UPI app.</p>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-block upi-action-btn" id="btn-upi-pay" onclick="confirmUpiPayment()">
+                            Pay <span id="upi-btn-amount">₹4,500</span> via UPI
+                        </button>
+                        <div class="upi-confirmed-banner" id="upi-confirmed-banner" style="display:none;">
+                            <span class="confirmed-check">✓</span>
+                            <div>
+                                <strong>UPI Payment Confirmed</strong>
+                                <div class="text-sm">Txn Ref: <code id="upi-txn-id">UPI-89421</code> • Verified & Ready</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DYNAMIC PAYMENT METHOD: CARD (CREDIT / DEBIT) -->
+                    <div id="pay-section-card" class="payment-method-box" style="display:none;">
+                        <div class="card-method-heading" id="card-method-title">Credit Card Payment Details</div>
+                        <div class="form-group">
+                            <label for="card-holder-name">Cardholder Name *</label>
+                            <input type="text" id="card-holder-name" placeholder="Name as printed on card">
+                        </div>
+                        <div class="form-group">
+                            <label for="card-number">Card Number *</label>
+                            <input type="text" id="card-number" placeholder="4532 •••• •••• 8920" maxlength="19" oninput="formatCardNumber(this)">
+                        </div>
+                        <div class="form-grid-2">
+                            <div class="form-group">
+                                <label for="card-expiry">Expiry Date (MM/YY) *</label>
+                                <input type="text" id="card-expiry" placeholder="MM/YY" maxlength="5" oninput="formatCardExpiry(this)">
+                            </div>
+                            <div class="form-group">
+                                <label for="card-cvv">Security Code (CVV) *</label>
+                                <input type="password" id="card-cvv" placeholder="•••" maxlength="4">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DYNAMIC PAYMENT METHOD: CASH ON PICKUP -->
+                    <div id="pay-section-cash" class="payment-method-box" style="display:none;">
+                        <div class="cash-pickup-card">
+                            <div class="cash-pickup-icon">💵</div>
+                            <div class="cash-pickup-content">
+                                <h4 class="cash-pickup-title">Cash on Equipment Pickup</h4>
+                                <p class="cash-pickup-desc">
+                                    No online payment is collected now. The total rental amount of <strong id="cash-display-amount">₹4,500</strong> will be collected in cash at the rental counter when you pick up your item.
+                                </p>
+                                <div class="badge badge-warning">
+                                    <span class="badge-dot"></span>Payment Status: Payment Pending
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Price Calculation & Breakdown Card -->
+                    <div class="price-breakdown-card">
+                        <div class="breakdown-row">
+                            <span>Rental Duration:</span>
+                            <strong id="calc-duration-days">1 day</strong>
+                        </div>
+                        <div class="breakdown-row">
+                            <span>Daily Rental Rate:</span>
+                            <span id="calc-daily-rate">₹4,500 / day</span>
+                        </div>
+                        <div class="breakdown-row">
+                            <span>Rental Amount:</span>
+                            <strong id="calc-rental-amount">₹4,500</strong>
+                        </div>
+                        <div class="breakdown-row">
+                            <span>Applicable Late Fee:</span>
+                            <span class="text-success font-semibold" id="calc-late-fee">₹0 (Current)</span>
+                        </div>
+                        <div class="breakdown-formula-box">
+                            <span class="formula-line">
+                                Rental Amount (<span id="formula-rental-amt">₹4,500</span>) + Late Fee (<span id="formula-late-amt">₹0</span>) = Total Due (<span id="formula-total-amt">₹4,500</span>)
+                            </span>
+                        </div>
+                        <div class="breakdown-total-row">
+                            <span>Total Amount Due:</span>
+                            <span class="total-inr-price" id="calc-total-amount">₹4,500</span>
+                        </div>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-outline" onclick="closeModal('modal-rental')">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="btn-submit-rental">Confirm Rental</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: ADD / EDIT ITEM (Admin Flow)                            -->
+    <!-- ============================================================== -->
+    <div class="modal-overlay" id="modal-item" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="item-modal-title">Add Inventory Item</h3>
+                    <p class="modal-subtitle">Define item specifications, category, and daily rental rate in ₹</p>
+                </div>
+                <button class="modal-close" onclick="closeModal('modal-item')">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <form id="admin-item-form" onsubmit="submitAdminItemForm(event)">
+                    <input type="hidden" id="item-edit-id">
+
+                    <div class="form-group">
+                        <label for="item-edit-name">Item Name *</label>
+                        <input type="text" id="item-edit-name" placeholder="e.g. Sony Alpha A7 IV Mirrorless Camera" required>
+                    </div>
+
+                    <div class="form-grid-2">
+                        <div class="form-group">
+                            <label for="item-edit-category">Category *</label>
+                            <select id="item-edit-category" required>
+                                <option value="Photography">Photography</option>
+                                <option value="Electronics">Electronics</option>
+                                <option value="Audio & Sound">Audio & Sound</option>
+                                <option value="Tools">Tools</option>
+                                <option value="Outdoor & Camping">Outdoor & Camping</option>
+                                <option value="Sports & Mobility">Sports & Mobility</option>
+                                <option value="Gaming">Gaming</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="item-edit-price">Daily Rental Price (₹) *</label>
+                            <input type="number" id="item-edit-price" min="50" step="50" placeholder="4500" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="item-edit-desc">Description</label>
+                        <textarea id="item-edit-desc" rows="3" placeholder="Provide equipment specifications, included accessories, and condition..."></textarea>
+                    </div>
+
+                    <div class="form-grid-2">
+                        <div class="form-group">
+                            <label for="item-edit-icon">Category Icon Theme</label>
+                            <select id="item-edit-icon">
+                                <option value="camera">Camera (📷)</option>
+                                <option value="drone">Drone (🛸)</option>
+                                <option value="speaker">Speaker / Audio (🔊)</option>
+                                <option value="projector">Projector / Video (📽️)</option>
+                                <option value="gaming">Console / Gaming (🎮)</option>
+                                <option value="tent">Camping / Outdoor (⛺)</option>
+                                <option value="bike">Bicycle / Sports (🚲)</option>
+                                <option value="tools">Power Tools (🔧)</option>
+                                <option value="other">General Equipment (📦)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="item-edit-available">Availability Status</label>
+                            <select id="item-edit-available">
+                                <option value="true">Available Now</option>
+                                <option value="false">Currently Unavailable / Rented</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-outline" onclick="closeModal('modal-item')">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="btn-save-item">Save Item</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: LOGIN / REGISTER AUTHENTICATION                         -->
+    <!-- ============================================================== -->
+    <div class="modal-overlay" id="modal-auth" style="display:none;">
+        <div class="modal-card modal-auth-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="auth-modal-title">Account Access</h3>
+                    <p class="modal-subtitle">Sign in to your account or register as a new customer</p>
+                </div>
+                <button class="modal-close" onclick="closeModal('modal-auth')">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Mode Switch Tabs (Login vs Register) -->
+                <div class="auth-mode-tabs">
+                    <button class="auth-tab-btn active" id="tab-btn-login" onclick="setAuthMode('login')">Sign In</button>
+                    <button class="auth-tab-btn" id="tab-btn-register" onclick="setAuthMode('register')">New Customer Registration</button>
+                </div>
+
+                <!-- FORM: SIGN IN (Automated role detection on backend) -->
+                <div id="auth-panel-login">
+                    <form id="form-login" onsubmit="submitLogin(event)">
+                        <div class="form-group">
+                            <label for="auth-email">Email Address</label>
+                            <input type="email" id="auth-email" placeholder="name@example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="auth-password">Password</label>
+                            <input type="password" id="auth-password" placeholder="••••••••" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block mt-4" id="btn-submit-login">Sign In</button>
+                    </form>
+                </div>
+
+                <!-- FORM: CUSTOMER REGISTRATION -->
+                <div id="auth-panel-register" style="display:none;">
+                    <form id="form-register" onsubmit="submitRegister(event)">
+                        <div class="form-group">
+                            <label for="reg-name">Full Name *</label>
+                            <input type="text" id="reg-name" placeholder="e.g. Ramesh Kumar" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-email">Email Address *</label>
+                            <input type="email" id="reg-email" placeholder="ramesh@example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-phone">Phone Number *</label>
+                            <input type="tel" id="reg-phone" placeholder="+91 98765 43210" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-password">Password *</label>
+                            <input type="password" id="reg-password" placeholder="Create a secure password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block mt-4" id="btn-submit-register">Create Customer Account</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-wrapper" class="toast-wrapper"></div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
